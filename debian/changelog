@@ -1,0 +1,9 @@
+pars-image-writer (1.0.0) unstable; urgency=medium
+
+  * Initial release for Pars Linux.
+  * Modernized GTK3 user interface and disk burning engine.
+  * Support for ISO Mode (Windows UEFI/NTFS dual partition) and DD Raw Mode.
+  * Integration with Polkit security mechanisms and desktop environments.
+  * Complete project documentation suite added under docs/.
+
+ -- Pars Developers <dev@pars.org.tr>  Mon, 12 Oct 2026 23:00:00 +0300

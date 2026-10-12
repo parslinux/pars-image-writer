@@ -1,0 +1,214 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+# Fatih Altun <fatih.altun@pars.org.tr>, 2024.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: 1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-10-12 23:23+0300\n"
+"PO-Revision-Date: 2026-08-05 13:50+0300\n"
+"Last-Translator: Miguel Decode <migueldecode@gmail.com>\n"
+"Language-Team: Spanish <LL@li.org>\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0\n"
+"X-Generator: Gtranslator 42.0\n"
+
+#: ui/MainWindow.glade:7
+msgid "Checking..."
+msgstr "Verificando..."
+
+#: ui/MainWindow.glade:63
+msgid "Checking the file's integrity..."
+msgstr "Verificando la integridad del fichero..."
+
+#: ui/MainWindow.glade:79
+msgid "Calculating the hash value of the file..."
+msgstr "Calculando el valor hash del fichero..."
+
+#: ui/MainWindow.glade:93
+msgid "Retrieving verification data..."
+msgstr ""
+
+#: ui/MainWindow.glade:137
+msgid "DD Mode [Recommended]"
+msgstr "Modo DD [Recomendado]"
+
+#: ui/MainWindow.glade:141
+msgid "ISO Mode (for GNU/Linux)"
+msgstr "Modo Iso (para GNU/Linux)"
+
+#: ui/MainWindow.glade:145
+msgid "ISO Mode (for Windows)"
+msgstr "Modo ISO (para Windows)"
+
+#: ui/MainWindow.glade:151 ui/MainWindow.glade:956 src/MainWindow.py:177
+#, fuzzy
+msgid "Pars Image Writer"
+msgstr "Pars Image Writer"
+
+#: ui/MainWindow.glade:195
+#, fuzzy
+msgid "<b><big>Pars Image Writer</big></b>"
+msgstr "<b><big>Pars Image Writer</big></b>"
+
+#: ui/MainWindow.glade:247 src/MainWindow.py:475
+msgid "Select ISO or IMG File"
+msgstr "Seleccionar archivo ISO o IMG"
+
+#: ui/MainWindow.glade:361
+#, fuzzy
+msgid "Check ISO online"
+msgstr "Verificar ISO online (solo Pars)"
+
+#: ui/MainWindow.glade:458
+msgid "IMG Mode"
+msgstr "Modo IMG"
+
+#: ui/MainWindow.glade:556
+msgid "Start"
+msgstr "Iniciar"
+
+#: ui/MainWindow.glade:576 ui/MainWindow.glade:923
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: ui/MainWindow.glade:686 src/MainWindow.py:710
+msgid "Writing process is finished."
+msgstr "El proceso de grabación ha finalizado."
+
+#: ui/MainWindow.glade:712 src/MainWindow.py:713
+msgid "You can eject the USB disk."
+msgstr "Puede extraer el disco USB."
+
+#: ui/MainWindow.glade:722
+msgid "Quit"
+msgstr "Cerrar"
+
+#: ui/MainWindow.glade:740
+msgid "Write a new file."
+msgstr "Grabar un nuevo archivo."
+
+#: ui/MainWindow.glade:806
+msgid "This file:"
+msgstr "Este fichero:"
+
+#: ui/MainWindow.glade:833
+msgid "Will be written on this disk:"
+msgstr "Será grabado en este disco:"
+
+#: ui/MainWindow.glade:873
+msgid ""
+"<b>WARNING:</b>\n"
+"\n"
+"All the personal data on the device will be deleted.\n"
+"\n"
+"Do you want to continue?"
+msgstr ""
+"<b>Aviso:</b>\n"
+"\n"
+"Todos los datos personales del dispositivo serán eliminados.\n"
+"\n"
+"¿Desea continuar?"
+
+#: ui/MainWindow.glade:905
+msgid "Yes"
+msgstr "Sí"
+
+#: ui/MainWindow.glade:982
+msgid "Write ISO Images to USB devices easily."
+msgstr "Grabe fácilmente imágenes ISO en dispositivos USB."
+
+#. Name Surname <example@examplemail.com>
+#: ui/MainWindow.glade:985
+msgid "translator-credits"
+msgstr "Miguel Decode <migueldecode@gmail.com>"
+
+#: src/MainWindow.py:67
+#, python-brace-format
+msgid "{}h"
+msgstr "{}h"
+
+#: src/MainWindow.py:69
+#, python-brace-format
+msgid "{}m"
+msgstr "{}min"
+
+#: src/MainWindow.py:72
+#, python-brace-format
+msgid "{}s"
+msgstr "{}s"
+
+#: src/MainWindow.py:181
+#, fuzzy
+msgid "About Pars Image Writer"
+msgstr "Acerca de Pars Image Writer"
+
+#: src/MainWindow.py:254
+msgid "Remaining"
+msgstr "Restante"
+
+#: src/MainWindow.py:347 src/MainWindow.py:681
+msgid "Creating partitions..."
+msgstr "Creando particiones..."
+
+#: src/MainWindow.py:399
+#, fuzzy
+msgid "Could not connect to the verification server."
+msgstr "No se pudo conectar con pars.org.tr."
+
+#: src/MainWindow.py:401
+msgid "The file could not be read."
+msgstr "No se pudo leer el archivo."
+
+#: src/MainWindow.py:403
+#, fuzzy
+msgid "This is not a verified ISO, or it is corrupted."
+msgstr "Esto no es una ISO de Pars, o está dañada."
+
+#: src/MainWindow.py:405
+msgid "Integrity checking failed."
+msgstr "Falló la verificación de la integridad."
+
+#: src/MainWindow.py:575 src/MainWindow.py:595
+msgid "Grub packages needed for ISO Mode."
+msgstr "Se necesitan los paquetes de Grub para el Modo ISO."
+
+#: src/MainWindow.py:579
+#, fuzzy
+msgid "Would you like to install it from Software Center?"
+msgstr "¿Desea instalarlos desde el Centro de Software de Pars?"
+
+#: src/MainWindow.py:597
+msgid "Please install 'grub-efi-amd64-bin' and 'grub-pc-bin' packages."
+msgstr "Instale los paquetes 'grub-efi-amd64-bin' y 'grub-pc-bin'."
+
+#: src/MainWindow.py:670
+msgid "Installing GRUB..."
+msgstr "Instalando GRUB..."
+
+#: src/MainWindow.py:715
+msgid "Finished"
+msgstr "Finalizado"
+
+#: src/MainWindow.py:718
+msgid "Error!"
+msgstr "¡Error!"
+
+#: src/MainWindow.py:722
+msgid "An error occured while writing the file to the disk."
+msgstr "Ocurrió un error al escribir el archivo en el disco."
+
+#: src/MainWindow.py:724
+msgid "Please make sure the USB device is connected properly and try again."
+msgstr ""
+"Asegúrese de que el dispositivo USB está conectado correctamente e inténtelo "
+"de nuevo."
+
+#~ msgid "Retrieving data from <b>pars.org.tr</b>..."
+#~ msgstr "Recuperando datos de <b>pars.org.tr</b>..."

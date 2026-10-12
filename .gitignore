@@ -1,0 +1,8 @@
+*.glade~
+*.idea
+__pycache__/
+*.pyc
+*.mo
+build/
+dist/
+*.egg-info/

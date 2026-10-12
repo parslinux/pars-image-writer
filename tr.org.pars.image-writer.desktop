@@ -1,0 +1,18 @@
+[Desktop Entry]
+Name=Pars Image Writer
+Name[pt]=Gravador de Imagem Pars
+Name[tr]=Pars Disk Kalıbı Yazıcı
+GenericName=Image Writer
+GenericName[pt]=Gravador de Imagem
+GenericName[tr]=Disk Kalıbı Yazıcı
+Comment=Writes ISO and IMG files to USB disk
+Comment[pt]=Grava ficheiros ISO em disco USB
+Comment[tr]=ISO ve IMG Kalıplarını USB Belleklere yazar
+Exec=pars-image-writer %f
+Icon=pars-image-writer
+Terminal=false
+Type=Application
+Categories=System;X-Pars-Apps;Utility;
+MimeType=application/x-cd-image;application/x-raw-disk-image;
+StartupNotify=true
+Keywords=image;iso;img;writer;disk;usb;piw;pars;burn

@@ -1,0 +1,26 @@
+Source: pars-image-writer
+Section: utils
+Priority: optional
+Maintainer: Pars Dev <dev@pars.org.tr>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools
+Standards-Version: 4.6.1
+Homepage: https://github.com/parslinux/pars-image-writer
+
+Package: pars-image-writer
+Architecture: all
+Depends: ${misc:Depends},
+         ${python3:Depends},
+         parted,
+         python3 (>=3.5),
+         python3-gi,
+         python3-requests,
+         python3-pyudev,
+         gir1.2-gtk-3.0,
+         pv,
+         dosfstools,
+         ntfs-3g,
+         eject,
+         udev
+Description: Simple Gtk+ and Python based Disk Image USB burner
+ Pars Image Writer is a fast, safe .iso and .img writer to USB disks.
+ You can easily write your favorite OS or installation image to USB disk.

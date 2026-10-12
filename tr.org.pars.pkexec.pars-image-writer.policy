@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<policyconfig>
+
+  <vendor>Pars Developers</vendor>
+  <vendor_url>https://pars.org.tr/</vendor_url>
+
+  <action id="tr.org.pars.pkexec.pars-image-writer-dd-mode">
+    <description>Run FlashTool DD Mode</description>
+    <message>Authentication is required to run Pars Image Writer</message>
+    <message xml:lang="tr">Pars Disk Kalıbı Yazıcı için yetkilendirme gerekiyor</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/share/pars/pars-image-writer/src/ImageWriter.py</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+  <action id="tr.org.pars.pkexec.pars-image-writer-iso-mode">
+    <description>Run FlashTool ISO Mode</description>
+    <message>Authentication is required to run Pars Image Writer</message>
+    <message xml:lang="tr">Pars Disk Kalıbı Yazıcı için yetkilendirme gerekiyor</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/share/pars/pars-image-writer/src/ISOCopier.py</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+
+</policyconfig>
