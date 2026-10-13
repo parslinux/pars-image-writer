@@ -112,9 +112,21 @@ Bu belge, **Pars Image Writer** projesinin geliştirme aşamalarını, tamamlana
 
 ---
 
-## 3. Gelecek Yol Haritası (Roadmap)
+### [x] Faz 6: Bulut Kataloğu ve Ağ Tabanlı Dağıtım (Next-Gen Features)
+- [x] **Bulut İmaj Kataloğu (`src/Catalog.py`)**:
+  - Pars Linux (Desktop, Minimal), Debian, Ubuntu, Fedora, Arch ve Alpine içeren zengin bulut kalıp kataloğu.
+  - Sabit diske veya belleğe indirme yapmadan, HTTP/HTTPS akışını anında USB'ye yazan canlı motor (`stream_download_and_write` — 0 disk/RAM israfı).
+  - Canlı SHA-256 sağlama hesaplama ve donanımsal `O_DSYNC` blok eşitlemesi.
+- [x] **PXE / UEFI HTTP Boot Ağ Kurulum Sunucusu (`src/NetbootServer.py`)**:
+  - USB bellek takmaya gerek kalmadan, LAN üzerindeki bilgisayarları kurabilen gömülü mikro ağ sunucusu.
+  - Dinamik iPXE zincirleme yapılandırması ve UEFI HTTP Boot için 206 Byte-Range akış desteği.
+- [x] **CLI Uçbirim Entegrasyonu (`src/CLI.py`)**:
+  - `--catalog` (`-C`): Bulut kataloğunu tablo veya JSON formatında listeleme.
+  - `--cloud-write <ID>`: Kalıbı yerel diske indirmeden doğrudan USB'ye canlı yazma.
+  - `--netboot` (`-N`): Seçili ISO için anında LAN kurulum sunucusu başlatma.
+- [x] **Modern GTK4 Arayüz Entegrasyonu (`src/ModernWindow.py`)**:
+  - Arayüze "Bulut Kataloğu..." butonu, filtreli arama penceresi ve tek tıkla canlı yazma entegrasyonu.
+  - Başlık çubuğuna entegre "Ağ Kurulum Sunucusu (Netboot)" butonu ve canlı yayın penceresi.
+- [x] **Paketleme & Kurulum**:
+  - `setup.py` kurulumuna `Catalog.py` ve `NetbootServer.py` modülleri dahil edildi.
 
-### [ ] Faz 6: Bulut Kataloğu ve Ağ Tabanlı Dağıtım
-- [ ] Pars Linux ve popüler dağıtımlar için doğrudan indirme ve yazma kataloğu (Remote ISO Catalog).
-- [ ] Yerel ağ üzerinden PXE / HTTP ağdan önyükleme (Netboot) sunucusu modu.
-- [ ] WebUSB ve REST/WebSocket üzerinden uzaktan yönetilebilir disk yazma servis daemon'ı.

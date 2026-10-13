@@ -61,6 +61,8 @@ data_files = [
             "src/ImageWriter.py",
             "src/USBDeviceManager.py",
             "src/Utils.py",
+            "src/Catalog.py",
+            "src/NetbootServer.py",
             "src/copy_dir_with_dd.sh",
             "src/__version__",
         ],

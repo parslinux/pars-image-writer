@@ -70,6 +70,8 @@ class ModernWindow(Adw.ApplicationWindow):
 
         self.iso_path = None
         self.iso_size = 0
+        self.catalog_entry = None
+        self.cancel_requested = False
         self.devices = []
         self.selected_device_name = None
         self.multi_check_buttons = {}
@@ -104,6 +106,12 @@ class ModernWindow(Adw.ApplicationWindow):
         theme_btn.set_tooltip_text("Koyu / Açık Tema")
         theme_btn.connect("clicked", self.toggle_theme)
         header.pack_start(theme_btn)
+
+        # Netboot Server button
+        netboot_btn = Gtk.Button(icon_name="network-server-symbolic")
+        netboot_btn.set_tooltip_text("Ağ Kurulum Sunucusu (Netboot PXE)")
+        netboot_btn.connect("clicked", self.show_netboot_dialog)
+        header.pack_start(netboot_btn)
 
         # About button
         about_btn = Gtk.Button(icon_name="help-about-symbolic")
@@ -143,13 +151,20 @@ class ModernWindow(Adw.ApplicationWindow):
 
         self.row_file = Adw.ActionRow(
             title="Dosya Seçilmedi",
-            subtitle="Lütfen bir .iso veya .img kalıbı belirleyin"
+            subtitle="Lütfen bir .iso veya .img kalıbı belirleyin ya da buluttan seçin"
         )
         self.row_file.set_icon_name("media-optical-symbolic")
         btn_select_file = Gtk.Button(label="Gözat...")
         btn_select_file.set_valign(Gtk.Align.CENTER)
         btn_select_file.connect("clicked", self.on_select_file_clicked)
         self.row_file.add_suffix(btn_select_file)
+
+        btn_catalog = Gtk.Button(label="Bulut Kataloğu...")
+        btn_catalog.set_valign(Gtk.Align.CENTER)
+        btn_catalog.set_icon_name("folder-download-symbolic")
+        btn_catalog.connect("clicked", self.show_catalog_dialog)
+        self.row_file.add_suffix(btn_catalog)
+
         self.row_file.set_activatable_widget(btn_select_file)
         group_file.add(self.row_file)
 
@@ -475,8 +490,117 @@ class ModernWindow(Adw.ApplicationWindow):
                         self.row_file.set_title(name)
                         self.row_file.set_subtitle(f"{size_str} ({self.iso_size} bayt)")
                         self.show_toast(f"Kalıp seçildi: {name}")
+                    self.catalog_entry = None
+                    self.row_file.set_icon_name("media-optical-symbolic")
         except Exception:
             pass
+
+    def show_catalog_dialog(self, button=None):
+        from Catalog import RemoteCatalog
+        cat = RemoteCatalog()
+        entries = cat.get_entries()
+
+        dialog = Adw.Window(transient_for=self, modal=True)
+        dialog.set_title("Bulut İmaj Kataloğu")
+        dialog.set_default_size(620, 520)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        dialog.set_content(box)
+
+        header = Adw.HeaderBar()
+        title_w = Adw.WindowTitle(title="Bulut İmaj Kataloğu", subtitle="Doğrudan USB'ye Canlı İndirme & Yazma")
+        header.set_title_widget(title_w)
+        box.append(header)
+
+        search_entry = Gtk.SearchEntry(placeholder_text="İşletim sistemi veya mimari ara...")
+        search_entry.set_margin_start(16)
+        search_entry.set_margin_end(16)
+        search_entry.set_margin_top(8)
+        search_entry.set_margin_bottom(8)
+        box.append(search_entry)
+
+        scrolled = Gtk.ScrolledWindow(vexpand=True)
+        clamp = Adw.Clamp(maximum_size=580)
+        clamp.set_margin_start(16)
+        clamp.set_margin_end(16)
+        clamp.set_margin_bottom(16)
+        scrolled.set_child(clamp)
+        box.append(scrolled)
+
+        group = Adw.PreferencesGroup()
+        clamp.set_child(group)
+
+        rows = []
+        for e in entries:
+            row = Adw.ActionRow(
+                title=f"{e.name} {e.version}",
+                subtitle=f"{e.category} • {e.arch} • {e.size_human()} — {e.description}"
+            )
+            row.set_icon_name("folder-download-symbolic")
+            btn_choose = Gtk.Button(label="Seç", css_classes=["suggested-action"])
+            btn_choose.set_valign(Gtk.Align.CENTER)
+
+            def make_handler(entry=e):
+                def _choose_clicked(_b):
+                    self.on_catalog_entry_chosen(entry)
+                    dialog.close()
+                return _choose_clicked
+
+            btn_choose.connect("clicked", make_handler(e))
+            row.add_suffix(btn_choose)
+            row.set_activatable_widget(btn_choose)
+            group.add(row)
+            rows.append((e, row))
+
+        def on_search_changed(entry_w):
+            q = entry_w.get_text().lower().strip()
+            for ent, r in rows:
+                visible = (not q) or (q in ent.name.lower() or q in ent.category.lower() or q in ent.description.lower() or q in ent.arch.lower())
+                r.set_visible(visible)
+
+        search_entry.connect("search-changed", on_search_changed)
+        dialog.present()
+
+    def on_catalog_entry_chosen(self, entry):
+        self.catalog_entry = entry
+        self.iso_path = entry.url
+        self.iso_size = entry.size_bytes
+        self.row_file.set_title(f"{entry.name} {entry.version} (Bulut Kalıbı)")
+        self.row_file.set_subtitle(f"{entry.size_human()} • {entry.arch} • Canlı İndirme & Yazma")
+        self.row_file.set_icon_name("folder-download-symbolic")
+        self.show_toast(f"Bulut kalıbı seçildi: {entry.name}")
+
+    def show_netboot_dialog(self, button=None):
+        if not self.iso_path:
+            self.show_toast("Lütfen önce yerel bir ISO kalıp dosyası seçin!")
+            return
+        if self.iso_path.startswith("http"):
+            self.show_toast("Netboot için yerel bir ISO dosyası seçmelisiniz.")
+            return
+
+        from NetbootServer import NetbootServer
+
+        server = NetbootServer(self.iso_path, port=8088)
+        server.start()
+
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading="PXE & HTTP Netboot Sunucusu Başlatıldı",
+            body=(
+                f"Yerel Ağ IP    : {server.host}\n"
+                f"Yayın Portu    : {server.port}\n"
+                f"Kalıp Dosyası  : {server.iso_name}\n\n"
+                f"İstemci bilgisayarları ağdan (UEFI HTTP Boot) başlatmak için:\n"
+                f"{server.get_boot_url()}\n\n"
+                "Sunucu arka planda yayın yapıyor. Durdurmak için Kapat'a basın."
+            )
+        )
+        dialog.add_response("ok", "Sunucuyu Kapat")
+        def on_response(*args):
+            server.stop()
+            dialog.close()
+        dialog.connect("response", on_response)
+        dialog.present()
 
     def on_start_clicked(self, button):
         if not self.iso_path:
@@ -576,6 +700,13 @@ class ModernWindow(Adw.ApplicationWindow):
         self.spinner.start()
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_text("Yazma Başlatılıyor...")
+
+        if getattr(self, "catalog_entry", None):
+            self.lbl_progress_title.set_label("Bulut Kalıbı Canlı İndiriliyor & Yazılıyor...")
+            self.row_bytes.set_title("Canlı Akış (Stream)")
+            self.cancel_requested = False
+            threading.Thread(target=self.run_cloud_write_worker, daemon=True).start()
+            return
 
         mode_idx = self.row_mode.get_selected()
         is_windows = "false"
@@ -708,8 +839,52 @@ class ModernWindow(Adw.ApplicationWindow):
         t_mb = round(self.total_bytes / 1000 / 1000)
         self.row_bytes.set_subtitle(f"{w_mb} MB / {t_mb} MB")
 
+    def run_cloud_write_worker(self):
+        from Catalog import RemoteCatalog
+
+        is_multi = self.row_multi_station.get_active()
+        if is_multi:
+            target_devices = [f"/dev/{d}" for d in self.get_selected_multi_devices()]
+        else:
+            target_devices = [f"/dev/{self.selected_device_name}"]
+
+        def on_progress(p_data):
+            pct = p_data.get("percent", 0.0) / 100.0
+            spd = p_data.get("speed_bps", 0.0) / (1024 * 1024)
+            eta = p_data.get("eta_seconds", 0)
+            written = p_data.get("bytes_written", 0)
+            total = p_data.get("total_bytes", 0)
+
+            def _update():
+                self.progress_bar.set_fraction(pct)
+                self.progress_bar.set_text(f"%{pct * 100:.1f}")
+                self.row_speed.set_subtitle(f"{spd:.1f} MB/s")
+                self.row_eta.set_subtitle(format_duration(eta))
+                self.row_bytes.set_subtitle(f"{written // (1024*1024)} MB / {total // (1024*1024)} MB")
+                return False
+
+            GLib.idle_add(_update)
+
+        self.cancel_requested = False
+        try:
+            res = RemoteCatalog.stream_download_and_write(
+                self.catalog_entry,
+                target_devices,
+                progress_callback=on_progress,
+                cancel_token=lambda: getattr(self, "cancel_requested", False)
+            )
+            if res.get("success"):
+                GLib.idle_add(self.on_worker_finished, 0, "")
+            elif res.get("cancelled"):
+                GLib.idle_add(self.on_worker_finished, -signal.SIGTERM, "stopped")
+            else:
+                GLib.idle_add(self.on_worker_finished, 1, "Bulut yazma işlemi başarısız oldu.")
+        except Exception as exc:
+            GLib.idle_add(self.on_worker_finished, 1, str(exc))
+
     def on_cancel_clicked(self, button):
         self.btn_cancel.set_sensitive(False)
+        self.cancel_requested = True
         self.show_toast("İşlem iptal ediliyor, disk eşitleniyor...")
         if self.worker_stdin and not self.worker_stdin.closed:
             try:

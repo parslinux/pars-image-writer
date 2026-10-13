@@ -282,6 +282,201 @@ def verify_integrity(iso_path, expected_checksum=None, algorithm=None, as_json=F
         return False
 
 
+def handle_catalog_listing(as_json=False):
+    """List available operating system images in the cloud catalog."""
+    from Catalog import RemoteCatalog
+
+    cat = RemoteCatalog()
+    entries = cat.get_entries()
+
+    if as_json:
+        data = [
+            {
+                "id": e.id,
+                "name": e.name,
+                "category": e.category,
+                "version": e.version,
+                "arch": e.arch,
+                "size_bytes": e.size_bytes,
+                "size_human": e.size_human(),
+                "url": e.url,
+                "sha256": e.sha256,
+                "description": e.description,
+            }
+            for e in entries
+        ]
+        print(json.dumps(data, indent=2), flush=True)
+        sys.exit(0)
+
+    print("=" * 82)
+    print("  Pars Image Writer — Bulut İmaj Kataloğu (Remote ISO Catalog)")
+    print("=" * 82)
+    print(f"{'ID':<24} {'İsim':<26} {'Sürüm':<8} {'Mimari':<8} {'Boyut':<10}")
+    print("-" * 82)
+    for e in entries:
+        print(f"{e.id:<24} {e.name:<26} {e.version:<8} {e.arch:<8} {e.size_human():<10}")
+    print("-" * 82)
+    print("Doğrudan indirmeden USB'ye canlı yazmak için:")
+    print("  pars-image-writer-cli --cloud-write <ID> -d /dev/sdX")
+    print("=" * 82)
+    sys.exit(0)
+
+
+def handle_cloud_write(entry_id, raw_devices, yes=False, as_json=False):
+    """Stream download and burn directly into target USB block devices."""
+    from Catalog import RemoteCatalog
+
+    cat = RemoteCatalog()
+    entry = cat.find_by_id(entry_id)
+    if not entry:
+        err_msg = f"Bulut kataloğunda '{entry_id}' kimlikli bir kalıp bulunamadı. Kataloğu görmek için: --catalog"
+        if as_json:
+            print(json.dumps({"event": "error", "message": err_msg, "code": 2}), flush=True)
+        else:
+            sys.stderr.write(f"Hata: {err_msg}\n")
+        sys.exit(2)
+
+    if not raw_devices:
+        err_msg = "En az bir hedef USB aygıtı belirtilmelidir (-d /dev/sdX)."
+        if as_json:
+            print(json.dumps({"event": "error", "message": err_msg, "code": 2}), flush=True)
+        else:
+            sys.stderr.write(f"Hata: {err_msg}\n")
+        sys.exit(2)
+
+    target_devices = []
+    seen = set()
+    for d_arg in raw_devices:
+        for part in d_arg.split(","):
+            part = part.strip()
+            if part:
+                if not part.startswith("/dev/"):
+                    part = f"/dev/{part}"
+                if part not in seen:
+                    seen.add(part)
+                    target_devices.append(part)
+
+    # 5-stage drive validation
+    validated_targets = []
+    for dev_path in target_devices:
+        try:
+            block_name = USBDeviceManager.validate_usb_drive(dev_path)
+            validated_targets.append(dev_path)
+        except USBDeviceManager.DriveError as error:
+            err_msg = f"Güvenlik Engeli ({dev_path}): {error}"
+            if as_json:
+                print(json.dumps({"event": "error", "message": str(error), "device": dev_path, "code": 3}), flush=True)
+            else:
+                sys.stderr.write(f"Hata: {err_msg}\n")
+            sys.exit(3)
+
+    if not yes and not as_json:
+        print("\n" + "=" * 64)
+        print("  UYARI: CANLI BULUT YAZMA İŞLEMİ (STREAM BURN)")
+        print("=" * 64)
+        print(f"  Kalıp           : {entry.name} ({entry.version}) [{entry.size_human()}]")
+        print(f"  Hedef Aygıt(lar): {', '.join(validated_targets)}")
+        print("  DİKKAT: Seçilen disklerin TÜM VERİLERİ GERİ ALINAMAZ ŞEKİLDE SİLİNECEK!")
+        print("=" * 64)
+        confirm = input("İşlemi onaylıyor musunuz? (evet/hayır): ").strip().lower()
+        if confirm not in ("evet", "e", "yes", "y"):
+            print("İşlem kullanıcı tarafından iptal edildi.")
+            sys.exit(0)
+
+    if not as_json:
+        print(f"\nCanlı akış başlatılıyor: {entry.name} -> {', '.join(validated_targets)}")
+
+    multi_count = len(validated_targets)
+
+    def on_progress(p_data):
+        if as_json:
+            print(json.dumps({"event": "progress", **p_data}), flush=True)
+        else:
+            pct = p_data.get("percent", 0.0)
+            spd = p_data.get("speed_bps", 0.0) / (1024 * 1024)
+            eta = p_data.get("eta_seconds", 0)
+            print(render_progress_bar(pct, spd, eta, multi_count=multi_count), end="", flush=True)
+
+    result = cat.stream_download_and_write(entry, validated_targets, progress_callback=on_progress)
+    if result.get("success"):
+        if as_json:
+            print(json.dumps({"event": "completed", **result}), flush=True)
+        else:
+            print(f"\n\n✓ Canlı bulut yazma işlemi başarıyla tamamlandı!")
+            print(f"  Hesaplanan SHA-256: {result.get('sha256')}")
+            print(f"  Toplam yazılan     : {result.get('bytes_written')} bayt")
+        sys.exit(0)
+    else:
+        err_msg = "Canlı yazma işlemi tamamlanamadı."
+        if as_json:
+            print(json.dumps({"event": "error", "message": err_msg, "code": 1}), flush=True)
+        else:
+            sys.stderr.write(f"\nHata: {err_msg}\n")
+        sys.exit(1)
+
+
+def handle_netboot(iso_path, port=8088, as_json=False):
+    """Launch local micro PXE/HTTP network boot server."""
+    from NetbootServer import NetbootServer, get_local_ip
+
+    iso_path = os.path.abspath(iso_path)
+    if not os.path.isfile(iso_path):
+        err_msg = f"Kalıp dosyası bulunamadı: {iso_path}"
+        if as_json:
+            print(json.dumps({"event": "error", "message": err_msg, "code": 2}), flush=True)
+        else:
+            sys.stderr.write(f"Hata: {err_msg}\n")
+        sys.exit(2)
+
+    def log_cb(msg):
+        if as_json:
+            print(json.dumps({"event": "netboot_log", "message": msg}), flush=True)
+        else:
+            print(f"  [NETBOOT] {msg}")
+
+    server = NetbootServer(iso_path, port=port, log_callback=log_cb)
+    server.start()
+
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "event": "netboot_started",
+                    "host": server.host,
+                    "port": server.port,
+                    "boot_url": server.get_boot_url(),
+                    "iso_url": server.get_iso_url(),
+                }
+            ),
+            flush=True,
+        )
+    else:
+        print("\n" + "=" * 68)
+        print("  Pars Image Writer — PXE & HTTP Ağ Kurulum İstasyonu (Netboot)")
+        print("=" * 68)
+        print(f"  Yerel IP Adresi       : {server.host}")
+        print(f"  Yayın Portu           : {server.port}")
+        print(f"  Sunulan İmaj Dosyası  : {server.iso_name}")
+        print(f"  iPXE Önyükleme URL'i  : {server.get_boot_url()}")
+        print(f"  Doğrudan İndirme URL'i: {server.get_iso_url()}")
+        print("-" * 68)
+        print("  İstemci bilgisayarda Boot Menüden 'UEFI HTTP Boot' seçeneğini")
+        print(f"  kullanarak yukarıdaki iPXE URL'sini girin.")
+        print("  Sunucuyu durdurmak için: Ctrl+C")
+        print("=" * 68 + "\n")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        server.stop()
+        if as_json:
+            print(json.dumps({"event": "netboot_stopped"}), flush=True)
+        else:
+            print("\nNetboot sunucusu kapatıldı.")
+        sys.exit(0)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="pars-image-writer-cli",
@@ -348,6 +543,31 @@ def main():
         help="Bağlı USB aygıtlarını listele ve çık.",
     )
     parser.add_argument(
+        "-C", "--catalog",
+        dest="catalog",
+        action="store_true",
+        help="Bulut imaj kataloğundaki resmi işletim sistemlerini listele.",
+    )
+    parser.add_argument(
+        "--cloud-write",
+        dest="cloud_write",
+        metavar="ID",
+        help="Katalogdaki bir işletim sistemini yerel diske indirmeden canlı akışla doğrudan USB'ye yaz.",
+    )
+    parser.add_argument(
+        "-N", "--netboot",
+        dest="netboot",
+        action="store_true",
+        help="Yerel ağ üzerinde PXE / UEFI HTTP Boot kurulum sunucusu modunu başlat.",
+    )
+    parser.add_argument(
+        "--netboot-port",
+        dest="netboot_port",
+        type=int,
+        default=8088,
+        help="Netboot sunucusunun dinleyeceği HTTP portu (varsayılan: 8088).",
+    )
+    parser.add_argument(
         "-v", "--version",
         action="version",
         version=f"Pars Image Writer {get_version()}",
@@ -360,7 +580,26 @@ def main():
     if args.list:
         handle_device_listing(as_json=args.json)
 
-    # Validate mandatory arguments
+    # Cloud Catalog listing
+    if args.catalog:
+        handle_catalog_listing(as_json=args.json)
+
+    # Cloud streaming write directly to USB
+    if args.cloud_write:
+        handle_cloud_write(args.cloud_write, args.devices, yes=args.yes, as_json=args.json)
+
+    # Netboot micro-server mode
+    if args.netboot:
+        if not args.file:
+            err_msg = "Netboot sunucusu için bir kalıp dosyası belirtilmelidir (-f <kalıp.iso>)."
+            if args.json:
+                print(json.dumps({"event": "error", "message": err_msg, "code": 2}), flush=True)
+            else:
+                sys.stderr.write(f"Hata: {err_msg}\n")
+            sys.exit(2)
+        handle_netboot(args.file, port=args.netboot_port, as_json=args.json)
+
+    # Validate mandatory arguments for local file writing
     if not args.file or not args.devices:
         err_msg = "Eksik parametre: --file (-f) ve en az bir --device (-d) belirtilmelidir."
         if args.json:

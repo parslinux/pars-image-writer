@@ -45,6 +45,10 @@ pars-image-writer-cli --file <yol> --device <aygıtlar...> [seçenekler]
 | `--yes` | `-y` | Onay sorgusunu atla (otomasyon ve headless betikler için). |
 | `--json` | `-j` | İlerleme durumunu JSON akışı olarak stdout'a bas. |
 | `--list` | `-l` | Sistemdeki bağlı USB aygıtlarını listele ve çık. |
+| `--catalog` | `-C` | Bulut imaj kataloğundaki resmi işletim sistemlerini listele. |
+| `--cloud-write <ID>` | | Kataloğu yerel diske indirmeden canlı akışla doğrudan USB'ye yaz. |
+| `--netboot` | `-N` | Yerel ağ üzerinden PXE / UEFI HTTP Boot kurulum sunucusunu başlat. |
+| `--netboot-port <PORT>`| | Netboot sunucusu HTTP portu (varsayılan: 8088). |
 | `--version` | `-v` | Sürüm bilgisini göster ve çık. |
 | `--help` | `-h` | Yardım metnini göster ve çık. |
 
@@ -59,7 +63,16 @@ pars-image-writer-cli -f pars-linux.iso -d /dev/sdb /dev/sdc /dev/sdd -y
 # 3. Zstandard veya XZ sıkıştırılmış kalıbı doğrudan açarak diske yazma (Streaming decompress)
 pars-image-writer-cli -f fedora-silverblue.raw.xz -d /dev/sdb
 
-# 4. SHA-256 doğrulamalı ve JSON olay akışlı otomasyon çalıştırması
+# 4. Bulut Kataloğunu listeleme
+pars-image-writer-cli --catalog
+
+# 5. Buluttan doğrudan canlı indirerek USB'ye yazma (0 disk alanı harcar)
+pars-image-writer-cli --cloud-write pars-desktop-current -d /dev/sdb -y
+
+# 6. USB takmadan ağ üzerinden PXE / UEFI HTTP Boot sunucusu başlatma
+pars-image-writer-cli -f pars-linux.iso --netboot --netboot-port 8088
+
+# 7. SHA-256 doğrulamalı ve JSON olay akışlı otomasyon çalıştırması
 pars-image-writer-cli -f ubuntu.iso -d /dev/sdb -c --algo sha256 -y -j
 ```
 

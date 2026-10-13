@@ -8,6 +8,11 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/tr/1.0.0/) standardına uy
 
 ## [1.0.0] - 2026-10-13
 ### Eklendi
+- **Bulut İmaj Kataloğu ve Canlı Akış Yazımı (Cloud Catalog & Stream Burn)**:
+  - Resmi Linux dağıtımlarını (Pars Linux, Debian, Ubuntu, Fedora, Arch, Alpine) listeleyen ve yerel diske indirmeden doğrudan USB'ye canlı yazan motor (`src/Catalog.py`).
+  - Hem CLI (`--catalog`, `--cloud-write <ID>`) hem de modern GTK4 kullanıcı arayüzü entegrasyonu ("Bulut Kataloğu...").
+- **Ağ Tabanlı Kurulum Sunucusu (PXE / UEFI HTTP Boot Netboot Server)**:
+  - USB bellek gereksinimi olmadan, yerel ağdaki (LAN) bilgisayarları iPXE ve UEFI HTTP Boot üzerinden kurabilen entegre mikro sunucu (`src/NetbootServer.py`, CLI: `--netboot`, GTK4 HeaderBar entegrasyonu).
 - **Çoklu Eşzamanlı USB Yazma İstasyonu Modu (Broadcast Multi-Write)**: Kalıp dosyasını aynı anda birden fazla USB belleğe eşzamanlı yazma desteği (`ImageWriter.py`, `CLI.py`, `ModernWindow.py`).
 - **Doğrudan Akış Açma (Streaming Decompression)**: Zstandard (`.zst`), XZ (`.xz`), Gzip (`.gz`) ve Bzip2 (`.bz2`) sıkıştırılmış kalıplarını geçici disk alanı kullanmadan doğrudan RAM'den açarak diske yazma (`Utils.py`, `ImageWriter.py`, `CLI.py`).
 - **Flathub / Flatpak Desteği**: Standart Flatpak manifestosu (`tr.org.pars.ImageWriter.json`), AppStream metadata (`tr.org.pars.ImageWriter.metainfo.xml`) ve paketleme kılavuzu (`docs/FLATPAK_PACKAGING.md`).
