@@ -106,6 +106,9 @@ Bu belge, **Pars Image Writer** projesinin geliştirme aşamalarını, tamamlana
   - Kod tabanı, dokümantasyon ve örnek komutlardaki tüm miras dağıtım kalıntıları ve atıfları temizlendi (kod genelinde 0 referans).
   - Projenin kökenini, GPL-3.0 lisans uyumunu, mimari ayrışma ve gelişim tablosunu belgeleyen `docs/FORK.md` ve kök dizin `FORK.md` oluşturuldu.
   - `README.md` dokümantasyon haritasına bağlandı.
+- [x] **Yepyeni HiDPI Ekran Görüntüleri & Arayüz Telif Etiketi Temizliği**:
+  - `ui/MainWindow.glade` içerisindeki eski miras kurum etiketi `© Pars Developers` olarak güncellendi.
+  - `screenshots/pars-image-writer-1.png` (Ana Ekran) ve `screenshots/pars-image-writer-2.png` (Canlı %65 Yazma İşlemi) 2x HiDPI çözünürlükte baştan üretildi; eski arayüz ekran görüntüleri tamamen kaldırıldı.
 
 ---
 

@@ -37,9 +37,9 @@
 
 <div align="center">
 
-| Ana Yazma Ekranı | İşlem Tamamlandı |
+| Ana Ekran (Seçim Modu) | Canlı Yazma İşlemi (%65) |
 |:---:|:---:|
-| ![Ana Ekran](screenshots/pars-image-writer-1.png) | ![Bitiş Ekranı](screenshots/pars-image-writer-2.png) |
+| ![Ana Ekran](screenshots/pars-image-writer-1.png) | ![Yazma İşlemi](screenshots/pars-image-writer-2.png) |
 
 </div>
 

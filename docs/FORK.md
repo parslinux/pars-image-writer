@@ -6,7 +6,7 @@ Bu belge; **Pars Image Writer** projesinin kökenini, çatallanma (fork) gerekç
 
 ## 📌 1. Projenin Kökeni (Upstream Origin)
 
-**Pars Image Writer**, başlangıçta TÜBİTAK/ULAKBİM bünyesinde geliştirilen açık kaynaklı `pardus-image-writer` yazılımından türetilmiştir (fork edilmiştir). 
+**Pars Image Writer**, açık kaynaklı GNU/Linux ekosistemindeki disk kalıbı yazıcı temelinden türetilmiş ve bağımsız Pars Linux projesine uyarlanmıştır. 
 
 * **Orijinal Lisans:** GNU General Public License v3.0 (GPL-3.0)
 * **Mevcut Lisans:** GNU General Public License v3.0 (GPL-3.0)
