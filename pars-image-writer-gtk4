@@ -1,0 +1,19 @@
+#!/usr/bin/python3
+
+import os
+import sys
+
+paths = [
+    "/usr/share/pars/pars-image-writer/src/",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"),
+]
+
+for p in paths:
+    if os.path.exists(p):
+        sys.path.insert(0, p)
+        break
+
+from ModernWindow import main
+
+if __name__ == "__main__":
+    sys.exit(main())

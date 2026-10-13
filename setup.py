@@ -55,6 +55,8 @@ data_files = [
         [
             "src/Main.py",
             "src/MainWindow.py",
+            "src/ModernWindow.py",
+            "src/CLI.py",
             "src/ISOCopier.py",
             "src/ImageWriter.py",
             "src/USBDeviceManager.py",
@@ -68,10 +70,14 @@ data_files = [
         "/usr/share/polkit-1/actions",
         ["tr.org.pars.pkexec.pars-image-writer.policy"],
     ),
-    ("/usr/bin/", ["pars-image-writer"]),
+    ("/usr/bin/", ["pars-image-writer", "pars-image-writer-cli", "pars-image-writer-gtk4"]),
     (
         "/usr/share/icons/hicolor/scalable/apps/",
         ["assets/pars-image-writer.svg"],
+    ),
+    (
+        "/usr/share/metainfo",
+        ["tr.org.pars.ImageWriter.metainfo.xml"],
     ),
 ] + create_mo_files()
 
@@ -79,7 +85,7 @@ setup(
     name="Pars Image Writer",
     version=version,
     packages=find_packages(),
-    scripts=["pars-image-writer"],
+    scripts=["pars-image-writer", "pars-image-writer-cli", "pars-image-writer-gtk4"],
     install_requires=["PyGObject"],
     data_files=data_files,
     author="Pars Developers",

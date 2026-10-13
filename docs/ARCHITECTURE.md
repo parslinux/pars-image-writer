@@ -92,12 +92,17 @@ Uygulamanın temel felsefesi:
   5. **Device Mapper (LVM/LUKS/RAID)**: `/sys/block/<name>/holders/` dizininde aktif bağlayıcı varsa işlem engellenir.
 
 ### 2.4. `src/ImageWriter.py` — Ham DD Yazma Motoru
-- **Sorumluluk**: Kalıp dosyasını bayt bayt hedef blok aygıtına yazmak.
+- **Sorumluluk**: Kalıp dosyasını bayt bayt hedef blok aygıtına (veya çoklu aygıtlara) yazmak.
 - **Düşük Seviyeli Bayraklar**:
   - `O_WRONLY | O_EXCL | O_CLOEXEC | O_DSYNC`
   - `O_EXCL`: Diskin başka bir süreç tarafından tutulmadığını veya yeni bir bağlama yapılmadığını çekirdek düzeyinde kilitler.
   - `O_DSYNC`: Her `write()` çağrısının çekirdek disk önbelleğinde değil, doğrudan USB flaş denetleyicisinde tamamlanmasını zorunlu kılar.
 - **Tampon Boyutu**: `BUFFER_SIZE = 4 * 1024 * 1024` (4 MiB).
+- **Çoklu Eşzamanlı Yazma (Broadcast Multi-Write)**:
+  - Tek bir kaynak okumasıyla (`read(BUFFER_SIZE)`), veriyi açılmış olan tüm hedef blok aygıtlarına (`drive_files`) döngü içinde eşzamanlı yazar.
+  - Her disk yazımı bağımsız olarak senkronize edilir ve tüm sürücüler güvenle `eject` edilir.
+- **Doğrudan Akış Açma (Streaming Decompression)**:
+  - Zstandard (`.zst`), XZ (`.xz`), Gzip (`.gz`) ve Bzip2 (`.bz2`) formatındaki sıkıştırılmış kalıplar diskte geçici alan kaplamadan doğrudan RAM tamponu üzerinden decompress edilerek blok aygıtına yazılır.
 
 ### 2.5. `src/ISOCopier.py` — Bölümleme ve GRUB Önyükleyici Motoru
 - **Sorumluluk**: Bölümlendirilmiş, dosya sistemi tabanlı önyüklenebilir USB hazırlamak.
@@ -116,6 +121,11 @@ Uygulamanın temel felsefesi:
 - **`open_as_caller(path, flags)`**:
   - Root olarak çalışan betiğin, kullanıcının erişemeyeceği bir dosyayı (örneğin `/etc/shadow`) okuyup diske yazmasını önler.
   - `os.environ["PKEXEC_UID"]` üzerinden çağıran kullanıcının gerçek UID ve GID'sine geçici olarak düşer (`os.setresuid`, `os.setresgid`), dosyayı açar, dosya tanıtıcısını (`fd`) alır ve tekrar root haklarına döner.
+- **`detect_compression(filepath)` & `open_decompressed_stream(raw_file, comp_type)`**:
+  - Dosya magic byte'ları ve uzantıları üzerinden sıkıştırma türünü algılar.
+  - Sıkıştırılmış dosya tanıtıcısını şeffaf bir ikili akışa (binary streaming reader) sararak RAM tasarruflu decompress hattı kurar.
+- **`get_uncompressed_size(filepath, comp_type)`**:
+  - Dosyayı tamamen açmadan dosya başlıklarından veya araçlarından (`xz -l`, `zstd -l`, gzip trailer) açılmış boyutunu tespit eder.
 
 ---
 

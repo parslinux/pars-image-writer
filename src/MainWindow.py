@@ -26,6 +26,7 @@ TRANSLATIONS_PATH = "/usr/share/locale"
 
 # The sums are fetched over TLS: on plain HTTP anyone on the path could hand
 # out sums matching a tampered ISO and the check would pass.
+SHA256SUMS_URL = "https://indir.pars.org.tr/PARS/SHA256SUMS"
 MD5SUMS_URL = "https://indir.pars.org.tr/PARS/MD5SUMS"
 REQUEST_TIMEOUT_SECONDS = 15
 
@@ -99,9 +100,10 @@ class MainWindow:
         self.builder.set_translation_domain(APPNAME)
 
         # Import UI file:
-        self.builder.add_from_file(
-            os.path.dirname(os.path.abspath(__file__)) + "/../ui/MainWindow.glade"
+        ui_file = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "ui", "MainWindow.glade"
         )
+        self.builder.add_from_file(ui_file)
         self.builder.connect_signals(self)
 
         # Window
@@ -166,13 +168,15 @@ class MainWindow:
         self.dialog_about = UI("dialog_about")
 
     def update_dialog_version(self):
-        # Set version
-        # If can't get from `./__version__` file then accept version in MainWindow.glade file
-        with open(
-            os.path.dirname(os.path.abspath(__file__)) + "/__version__"
-        ) as version_file:
-            version = version_file.readline()
-            self.dialog_about.set_version(version)
+        # Set version from ./__version__ file
+        version_file_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "__version__"
+        )
+        if os.path.isfile(version_file_path):
+            with open(version_file_path, "r", encoding="utf-8") as version_file:
+                version = version_file.readline().strip()
+                if version:
+                    self.dialog_about.set_version(version)
 
         self.dialog_about.set_program_name(_("Pars Image Writer"))
         if self.dialog_about.get_titlebar() is None:
@@ -359,31 +363,68 @@ class MainWindow:
         threading.Thread(target=self.check_md5, daemon=True).start()
 
     def check_md5(self):
-        """Worker thread: never touch a Gtk widget from here, only idle_add."""
+        """Worker thread: check SHA-256 and MD5 against remote and local lists."""
+        iso_name = os.path.basename(self.iso_file_path)
+        iso_dir = os.path.dirname(self.iso_file_path)
+
+        # 1. Check local hash files first (e.g. .sha256, .sha512, .md5)
+        for ext, algo in [(".sha256", "sha256"), (".sha512", "sha512"), (".md5", "md5")]:
+            local_hash_file = self.iso_file_path + ext
+            if not os.path.isfile(local_hash_file):
+                local_hash_file = os.path.join(iso_dir, os.path.splitext(iso_name)[0] + ext)
+            if os.path.isfile(local_hash_file):
+                try:
+                    with open(local_hash_file, "r") as f:
+                        expected = f.read().strip().split()[0].lower()
+                    calculated = self.calculate_file_hash(self.iso_file_path, algo).lower()
+                    matched = (expected == calculated)
+                    GLib.idle_add(
+                        self.on_integrity_checked,
+                        IntegrityResult.OK if matched else IntegrityResult.MISMATCH,
+                    )
+                    return
+                except OSError:
+                    pass
+
+        # 2. Try online SHA256SUMS first
+        remote_checked = False
         try:
-            response = requests.get(MD5SUMS_URL, timeout=REQUEST_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            md5sums = response.text
+            resp = requests.get(SHA256SUMS_URL, timeout=REQUEST_TIMEOUT_SECONDS)
+            if resp.status_code == 200:
+                remote_checked = True
+                calc_sha256 = self.calculate_file_hash(self.iso_file_path, "sha256").lower()
+                matched = any(
+                    line.strip().split()[:1] == [calc_sha256]
+                    for line in resp.text.splitlines()
+                )
+                if matched:
+                    GLib.idle_add(self.on_integrity_checked, IntegrityResult.OK)
+                    return
         except requests.RequestException:
-            GLib.idle_add(self.on_integrity_checked, IntegrityResult.NO_CONNECTION)
-            return
+            pass
 
+        # 3. Try online MD5SUMS
         try:
-            md5sum_of_iso = self.calculate_md5_of_file(self.iso_file_path)
-        except OSError:
-            GLib.idle_add(self.on_integrity_checked, IntegrityResult.UNREADABLE)
-            return
+            resp = requests.get(MD5SUMS_URL, timeout=REQUEST_TIMEOUT_SECONDS)
+            if resp.status_code == 200:
+                remote_checked = True
+                calc_md5 = self.calculate_file_hash(self.iso_file_path, "md5").lower()
+                matched = any(
+                    line.strip().split()[:1] == [calc_md5]
+                    for line in resp.text.splitlines()
+                )
+                GLib.idle_add(
+                    self.on_integrity_checked,
+                    IntegrityResult.OK if matched else IntegrityResult.MISMATCH,
+                )
+                return
+        except requests.RequestException:
+            pass
 
-        # Compare against the hash column instead of searching the whole file,
-        # so a hash can only match where a hash is expected.
-        matched = any(
-            line.split()[:1] == [md5sum_of_iso] for line in md5sums.splitlines()
-        )
-
-        GLib.idle_add(
-            self.on_integrity_checked,
-            IntegrityResult.OK if matched else IntegrityResult.MISMATCH,
-        )
+        if not remote_checked:
+            GLib.idle_add(self.on_integrity_checked, IntegrityResult.NO_CONNECTION)
+        else:
+            GLib.idle_add(self.on_integrity_checked, IntegrityResult.MISMATCH)
 
     def on_integrity_checked(self, result):
         """Back on the main thread with the outcome of the integrity check."""
@@ -461,12 +502,12 @@ class MainWindow:
     def stop_interval_tick(self):
         self.stop_interval_tick_flag = True
 
+    def calculate_file_hash(self, filename, algorithm="sha256"):
+        from Utils import calculate_hash
+        return calculate_hash(filename, algorithm)
+
     def calculate_md5_of_file(self, filename):
-        hash_md5 = hashlib.md5()
-        with open(filename, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
+        return self.calculate_file_hash(filename, "md5")
 
     # === SIGNALS ===
     # Button Signals:
@@ -475,17 +516,17 @@ class MainWindow:
             _("Select ISO or IMG File"),
             action=Gtk.FileChooserAction.OPEN,
             buttons=(
-                Gtk.STOCK_CANCEL,
+                _("_Cancel"),
                 Gtk.ResponseType.CANCEL,
-                Gtk.STOCK_OPEN,
+                _("_Open"),
                 Gtk.ResponseType.OK,
             ),
         )
 
         file_filter = Gtk.FileFilter()
-        file_filter.set_name("*.iso, *.img")
-        file_filter.add_pattern("*.iso")
-        file_filter.add_pattern("*.img")
+        file_filter.set_name(_("Disk Images (*.iso, *.img, *.xz, *.gz, *.zst)"))
+        for pattern in ("*.iso", "*.ISO", "*.img", "*.IMG", "*.raw", "*.RAW", "*.xz", "*.XZ", "*.gz", "*.GZ", "*.zst", "*.ZST"):
+            file_filter.add_pattern(pattern)
         dialog.add_filter(file_filter)
 
         dialog.show()
@@ -502,13 +543,10 @@ class MainWindow:
 
     def on_btn_start_clicked(self, button):
         # Ask if it is ok?
-        self.lbl_prewrite_filename.set_markup(
-            "- <b>{}</b>".format(self.iso_file_path.split("/")[-1])
-        )
+        filename = os.path.basename(self.iso_file_path)
+        self.lbl_prewrite_filename.set_markup(f"- <b>{filename}</b>")
         self.lbl_prewrite_disk.set_markup(
-            "- <b>{} [ {} ]</b> <i>( /dev/{} )</i>".format(
-                self.usb_device[1], self.usb_device[2], self.usb_device[0]
-            )
+            f"- <b>{self.usb_device[1]} [ {self.usb_device[2]} ]</b> <i>( /dev/{self.usb_device[0]} )</i>"
         )
 
         self.stack_windows.set_visible_child_name("prewrite")
@@ -620,12 +658,10 @@ class MainWindow:
             if total > 0:
                 percent = written / total
 
+            written_mb = round(written / 1_000_000)
+            total_mb = round(total / 1_000_000)
             self.pb_writing_progress.set_text(
-                "{}MB / {}MB (%{:.1f})".format(
-                    round(written / 1000 / 1000),
-                    round(total / 1000 / 1000),
-                    int(percent * 1000) / 10,
-                )
+                f"{written_mb}MB / {total_mb}MB (%{percent * 100:.1f})"
             )
             self.pb_writing_progress.set_fraction(percent)
             self.update_writing_details(written, total)
@@ -664,15 +700,11 @@ class MainWindow:
             percent = (self.written_bytes + self.written_tmp_bytes) / self.total_bytes
             elapsed_time = seconds_to_formatted_time(self.second_tick_count)
 
-            # print(f"{self.written_bytes + self.written_tmp_bytes} / {self.total_bytes}")
-
             if self.copying_finished:
                 self.pb_writing_progress.set_text(_("Installing GRUB..."))
                 self.lbl_writing_details.set_label("")
             elif self.total_bytes > 1:
-                self.pb_writing_progress.set_text(
-                    "{} | %{:.1f}".format(elapsed_time, int(percent * 1000) / 10)
-                )
+                self.pb_writing_progress.set_text(f"{elapsed_time} | %{percent * 100:.1f}")
                 self.pb_writing_progress.set_fraction(percent)
                 self.update_writing_details(
                     self.written_bytes + self.written_tmp_bytes, self.total_bytes
@@ -706,11 +738,10 @@ class MainWindow:
         cancelled_or_unauthorized = exit_code in (-signal.SIGTERM, 126, 127)
 
         if exit_code == 0:
+            iso_name = os.path.basename(self.iso_file_path)
             self.send_notification(
                 _("Writing process is finished."),
-                os.path.basename(self.iso_file_path)
-                + " | "
-                + _("You can eject the USB disk."),
+                f"{iso_name} | {_('You can eject the USB disk.')}",
             )
             self.pb_writing_progress.set_text(_("Finished"))
             self.stack_windows.set_visible_child_name("finished")
@@ -740,7 +771,7 @@ class MainWindow:
 
         if self.write_mode != WriteMode.DD:
             self.pb_writing_progress.set_text(
-                "{} | %{:.1f}".format(elapsed_time, int(percent * 1000) / 10)
+                f"{elapsed_time} | %{percent * 100:.1f}"
             )
         else:
             return False

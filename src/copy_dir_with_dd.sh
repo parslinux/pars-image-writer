@@ -27,8 +27,14 @@ fi
 cd "$SOURCE" || exit 1
 
 COPIED_FILES=0
+ACCUMULATED_BYTES=0
 TOTAL_FILE_COUNT=$(find . -type f | wc -l)
 TOTAL_BYTES=$(du -sb "$SOURCE" | cut -f1)
+
+HAS_PV=0
+if command -v pv >/dev/null 2>&1; then
+	HAS_PV=1
+fi
 
 echo "TOTAL_BYTES:$TOTAL_BYTES"
 
@@ -39,12 +45,17 @@ done || exit 1
 
 # 'find -print0' with a NUL delimited read keeps whole file names intact.
 find . -type f -print0 | while IFS= read -r -d '' file; do
-	# !!! IMPORTANT !!!
-	# Works best if the USB disk not mounted as fuseblk. Mount something like ntfs3 to transfer the files faster.(e.g. mount -t ntfs3 ...)
-
-	dd if="$file" status=none bs=64K \
-		| pv --numeric --bytes --buffer-size 64K \
-		| dd of="$TARGET/$file" oflag=nocache status=none bs=64K || exit 1
+	# Works best if the USB disk not mounted as fuseblk. Mount something like ntfs3 to transfer the files faster.
+	if [ "$HAS_PV" -eq 1 ]; then
+		dd if="$file" status=none bs=64K \
+			| pv --numeric --bytes --buffer-size 64K \
+			| dd of="$TARGET/$file" oflag=nocache status=none bs=64K || exit 1
+	else
+		dd if="$file" of="$TARGET/$file" oflag=nocache status=none bs=64K || exit 1
+		FILE_SIZE=$(stat -c%s "$file" 2>/dev/null || wc -c < "$file")
+		ACCUMULATED_BYTES=$((ACCUMULATED_BYTES + FILE_SIZE))
+		echo "$ACCUMULATED_BYTES"
+	fi
 
 	COPIED_FILES=$((COPIED_FILES + 1))
 	echo "COPIED:$COPIED_FILES:$TOTAL_FILE_COUNT"

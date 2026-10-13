@@ -39,15 +39,15 @@ def stop_requested():
     return _stop_signal != 0
 
 
-def log(message):
+def log(message: str) -> None:
     """Write a diagnostic line. stdout belongs to the progress protocol."""
-    sys.stderr.write("{}\n".format(message))
+    sys.stderr.write(f"{message}\n")
     sys.stderr.flush()
 
 
-def fail(message):
+def fail(message: str) -> None:
     """Report an error and exit with 1, which MainWindow shows as a failure."""
-    log("Error: {}".format(message))
+    log(f"Error: {message}")
     sys.exit(1)
 
 
@@ -91,7 +91,7 @@ def open_as_caller(path, flags):
         entry = pwd.getpwuid(uid)
         groups = os.getgrouplist(entry.pw_name, entry.pw_gid)
     except KeyError:
-        raise PermissionError("Unknown calling user id {}.".format(uid))
+        raise PermissionError(f"Unknown calling user id {uid}.")
 
     saved_groups = os.getgroups()
     try:
@@ -205,3 +205,180 @@ def exit_as_cancelled():
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     os.kill(os.getpid(), signal.SIGTERM)
     sys.exit(1)  # not reached, the signal above ends the process
+
+
+SUPPORTED_HASH_ALGORITHMS = ("md5", "sha256", "sha512")
+HASH_CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB buffer for high performance
+
+SUPPORTED_COMPRESSION_FORMATS = ("xz", "gz", "zst", "zstd", "bz2")
+SUPPORTED_IMAGE_EXTENSIONS = (
+    ".iso", ".img", ".raw",
+    ".iso.xz", ".img.xz", ".raw.xz", ".xz",
+    ".iso.gz", ".img.gz", ".raw.gz", ".gz",
+    ".iso.zst", ".img.zst", ".raw.zst", ".zst", ".zstd",
+    ".iso.bz2", ".img.bz2", ".raw.bz2", ".bz2",
+)
+
+
+def calculate_hash(filepath, algorithm="sha256"):
+    """Compute hash of a file using md5, sha256 or sha512 with a 4 MiB buffer."""
+    import hashlib
+
+    algo = algorithm.lower()
+    if algo not in SUPPORTED_HASH_ALGORITHMS:
+        raise ValueError("Unsupported hash algorithm: {}".format(algorithm))
+
+    hasher = hashlib.new(algo)
+    with open(filepath, "rb") as f:
+        while True:
+            chunk = f.read(HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def detect_hash_type(hash_str):
+    """Detect whether a hex hash is md5, sha256 or sha512 based on length."""
+    h = hash_str.strip().lower()
+    if len(h) == 32:
+        return "md5"
+    elif len(h) == 64:
+        return "sha256"
+    elif len(h) == 128:
+        return "sha512"
+    return None
+
+
+def detect_compression(filepath):
+    """Detect compression format ('xz', 'gz', 'zst', 'bz2') by magic bytes or extension."""
+    try:
+        with open(filepath, "rb") as f:
+            magic = f.read(6)
+            if magic.startswith(b"\x1f\x8b"):
+                return "gz"
+            elif magic.startswith(b"\xfd7zXZ\x00"):
+                return "xz"
+            elif magic.startswith(b"\x28\xb5\x2f\xfd"):
+                return "zst"
+            elif magic.startswith(b"BZh"):
+                return "bz2"
+    except OSError:
+        pass
+
+    lower = filepath.lower()
+    if lower.endswith(".xz"):
+        return "xz"
+    elif lower.endswith(".gz"):
+        return "gz"
+    elif lower.endswith(".zst") or lower.endswith(".zstd"):
+        return "zst"
+    elif lower.endswith(".bz2"):
+        return "bz2"
+
+    return None
+
+
+def get_uncompressed_size(filepath, comp_type=None):
+    """Attempt to detect uncompressed image size in bytes without full extraction."""
+    if comp_type is None:
+        comp_type = detect_compression(filepath)
+    if not comp_type:
+        try:
+            return os.path.getsize(filepath)
+        except OSError:
+            return None
+
+    if comp_type == "xz":
+        xz_bin = shutil.which("xz")
+        if xz_bin:
+            try:
+                res = subprocess.run(
+                    [xz_bin, "--robot", "-l", filepath],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if res.returncode == 0:
+                    for line in res.stdout.splitlines():
+                        parts = line.strip().split("\t")
+                        if len(parts) >= 5 and parts[0] == "totals":
+                            if parts[4].isdigit():
+                                return int(parts[4])
+            except Exception:
+                pass
+
+    elif comp_type in ("zst", "zstd"):
+        try:
+            import zstandard
+            with open(filepath, "rb") as f:
+                header = f.read(1024)
+                size = zstandard.frame_content_size(header)
+                if size and size > 0:
+                    return size
+        except Exception:
+            pass
+
+        zstd_bin = shutil.which("zstd")
+        if zstd_bin:
+            try:
+                res = subprocess.run(
+                    [zstd_bin, "-l", filepath],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if res.returncode == 0:
+                    for line in res.stdout.splitlines():
+                        parts = line.split()
+                        for p in parts:
+                            if p.isdigit() and int(p) > 1024 * 1024:
+                                return int(p)
+            except Exception:
+                pass
+
+    elif comp_type == "gz":
+        try:
+            with open(filepath, "rb") as f:
+                f.seek(-4, os.SEEK_END)
+                import struct
+                isize = struct.unpack("<I", f.read(4))[0]
+                if isize > 0:
+                    return isize
+        except Exception:
+            pass
+
+    return None
+
+
+def open_decompressed_stream(raw_file, comp_type):
+    """Wrap a binary readable file object in an on-the-fly streaming decompressor."""
+    if comp_type == "xz":
+        import lzma
+        return lzma.open(raw_file, "rb")
+    elif comp_type == "gz":
+        import gzip
+        return gzip.open(raw_file, "rb")
+    elif comp_type == "bz2":
+        import bz2
+        return bz2.open(raw_file, "rb")
+    elif comp_type in ("zst", "zstd"):
+        try:
+            import zstandard
+            dctx = zstandard.ZstdDecompressor()
+            return dctx.stream_reader(raw_file)
+        except ImportError:
+            zstd_bin = shutil.which("zstd")
+            if zstd_bin:
+                proc = subprocess.Popen(
+                    [zstd_bin, "-dc"],
+                    stdin=raw_file,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=4 * 1024 * 1024,
+                )
+                return proc.stdout
+            raise RuntimeError("Zstandard desteği için 'zstandard' modülü veya 'zstd' komutu gereklidir.")
+
+    return raw_file
+

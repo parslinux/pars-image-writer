@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>tr.org.pars.ImageWriter</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Pars Image Writer</name>
+  <name xml:lang="tr">Pars Kalıp Yazıcı</name>
+  <summary>Modern, safe and fast USB disk image writer</summary>
+  <summary xml:lang="tr">Modern, güvenli ve hızlı USB disk kalıbı yazıcı</summary>
+
+  <description>
+    <p>
+      Pars Image Writer is an advanced, secure and easy-to-use tool to write ISO, IMG,
+      and compressed (XZ, GZ, ZST) disk images directly to USB flash drives and SD cards.
+    </p>
+    <p xml:lang="tr">
+      Pars Image Writer; ISO, IMG ve sıkıştırılmış (XZ, GZ, ZST) disk kalıplarını doğrudan
+      USB belleklere ve SD kartlara yazmak için tasarlanmış gelişmiş, güvenli ve modern bir araçtır.
+    </p>
+    <p>Features:</p>
+    <p xml:lang="tr">Özellikler:</p>
+    <ul>
+      <li>Raw DD Block Writing with Direct I/O synchronization</li>
+      <li xml:lang="tr">Doğrudan G/Ç senkronizasyonu ile güvenli Ham DD Blok Yazma</li>
+      <li>Hybrid ISO Boot Mode with FAT32 &amp; GRUB support</li>
+      <li xml:lang="tr">FAT32 ve GRUB destekli Hibrit ISO Önyükleme Modu</li>
+      <li>Windows ISO Mode with NTFS and UEFI boot compatibility</li>
+      <li xml:lang="tr">NTFS ve UEFI uyumlu Windows ISO Modu</li>
+      <li>Live USB Persistence partition for portable Linux installations</li>
+      <li xml:lang="tr">Taşınabilir Linux kurulumları için Canlı Kalıcı Depolama (Persistence)</li>
+      <li>Broadcast Multi-Write Station: Write simultaneously to multiple USB drives</li>
+      <li xml:lang="tr">Çoklu Yazma İstasyonu: Kalıbı aynı anda birden fazla USB belleğe eşzamanlı yazma</li>
+      <li>On-the-fly streaming decompression for Zstandard (.zst), XZ (.xz) and Gzip (.gz)</li>
+      <li xml:lang="tr">Zstandard (.zst), XZ (.xz) ve Gzip (.gz) için anında doğrudan akış açma</li>
+      <li>Automated SHA-256 and MD5 checksum integrity verification</li>
+      <li xml:lang="tr">Otomatik SHA-256 ve MD5 sağlama özeti doğrulama</li>
+      <li>5-stage kernel-level drive safety filter preventing internal disk overwrites</li>
+      <li xml:lang="tr">Dahili sistem disklerinin silinmesini engelleyen 5 kademeli güvenlik filtresi</li>
+      <li>Headless CLI tool (pars-image-writer-cli) with JSON streaming support</li>
+      <li xml:lang="tr">JSON olay akışı destekli bağımsız uçbirim aracı (pars-image-writer-cli)</li>
+      <li>Responsive GTK4 and Libadwaita modern user interface</li>
+      <li xml:lang="tr">Duyarlı ve modern GTK4 / Libadwaita kullanıcı arayüzü</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">tr.org.pars.image-writer.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main application window</caption>
+      <caption xml:lang="tr">Ana uygulama penceresi</caption>
+      <image>https://raw.githubusercontent.com/parslinux/pars-image-writer/master/screenshots/main.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Writing progress and real-time monitoring</caption>
+      <caption xml:lang="tr">Yazma ilerlemesi ve anlık izleme</caption>
+      <image>https://raw.githubusercontent.com/parslinux/pars-image-writer/master/screenshots/iso.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://pars.org.tr</url>
+  <url type="bugtracker">https://github.com/parslinux/pars-image-writer/issues</url>
+  <url type="vcs-browser">https://github.com/parslinux/pars-image-writer</url>
+
+  <developer_name>Pars Linux Developers</developer_name>
+  <developer_name xml:lang="tr">Pars Linux Geliştiricileri</developer_name>
+
+  <provides>
+    <binary>pars-image-writer</binary>
+    <binary>pars-image-writer-cli</binary>
+    <binary>pars-image-writer-gtk4</binary>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="1.0.0" date="2026-10-13">
+      <description>
+        <p>Pars Image Writer 1.0.0 official release:</p>
+        <ul>
+          <li>Broadcast multi-write station mode for concurrent USB burning</li>
+          <li>Streaming on-the-fly decompression for .zst, .xz, and .gz disk images</li>
+          <li>Independent headless CLI with ANSI progress bar and JSON output</li>
+          <li>Modern GTK4 / Libadwaita adaptive user interface</li>
+          <li>Multi-checksum verification (SHA-256, SHA-512, MD5)</li>
+          <li>Live USB persistence support</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+</component>

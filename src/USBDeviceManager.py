@@ -20,8 +20,18 @@ import stat
 import subprocess
 from glob import glob
 
-from pyudev import Context, Monitor, Devices
-from pyudev import MonitorObserver, DeviceNotFoundAtPathError
+try:
+    from pyudev import Context, Monitor, Devices
+    from pyudev import MonitorObserver, DeviceNotFoundAtPathError
+    HAS_PYUDEV = True
+except ImportError:
+    HAS_PYUDEV = False
+    Context = None
+    Monitor = None
+    Devices = None
+    MonitorObserver = None
+    class DeviceNotFoundAtPathError(Exception):
+        pass
 
 # Never write to a disk that carries one of these mount points. The USB check
 # already rejects the internal disk of a normal machine, but on the boards and
@@ -48,14 +58,52 @@ class DriveError(Exception):
     """The target drive is missing, unsafe or not a removable USB disk."""
 
 
-def find_usb_block_names():
-    """Return the /sys/block names of the connected USB disks, e.g. ['sdb']."""
-    block_names = []
-    for path in map(os.path.realpath, glob("/sys/block/sd*")):
-        if any("usb" in part for part in path.split("/")):
-            block_names.append(os.path.basename(path))
+def is_device_removable_or_usb(resolved_path):
+    """Check whether a sysfs block device path represents a USB or removable storage device."""
+    # Check if connected over USB bus
+    if any("usb" in part.lower() for part in resolved_path.split("/")):
+        return True
 
-    return block_names
+    # Check removable attribute in sysfs
+    removable_file = os.path.join(resolved_path, "removable")
+    if os.path.isfile(removable_file):
+        try:
+            with open(removable_file, "r") as f:
+                if f.read().strip() == "1":
+                    return True
+        except OSError:
+            pass
+
+    # Check MMC subsystem (SD cards in internal/PCIe card readers)
+    if "mmc" in resolved_path.lower():
+        type_file = os.path.join(resolved_path, "device", "type")
+        if os.path.isfile(type_file):
+            try:
+                with open(type_file, "r") as f:
+                    card_type = f.read().strip().lower()
+                    if card_type in ("sd", "sdio"):
+                        return True
+            except OSError:
+                pass
+
+    return False
+
+
+def find_usb_block_names():
+    """Return the /sys/block names of connected USB and removable disks, e.g. ['sdb', 'mmcblk0']."""
+    block_names = []
+    candidate_paths = []
+    for pattern in ("/sys/block/sd*", "/sys/block/mmcblk*", "/sys/block/nvme*"):
+        candidate_paths.extend(glob(pattern))
+
+    for path in map(os.path.realpath, candidate_paths):
+        b_name = os.path.basename(path)
+        if b_name.startswith(("loop", "ram", "zram", "sr")):
+            continue
+        if is_device_removable_or_usb(path):
+            block_names.append(b_name)
+
+    return sorted(list(set(block_names)))
 
 
 def get_block_name(drive):
@@ -130,7 +178,7 @@ def get_swap_devices():
 
 
 def is_whole_usb_disk(major, minor, block_name):
-    """Check in sysfs that a device number is the whole USB disk we validated.
+    """Check in sysfs that a device number is the whole USB or removable disk we validated.
 
     The lookup starts from the device number of an already opened descriptor,
     so it describes the disk that is really about to be written.
@@ -144,9 +192,7 @@ def is_whole_usb_disk(major, minor, block_name):
     if os.path.exists(os.path.join(resolved, "partition")):
         return False
 
-    # The sysfs path of a USB disk walks through the USB bus, e.g.
-    # /sys/devices/.../usb3/3-1/3-1:1.0/host0/target0:0:0/0:0:0:0/block/sda
-    return any("usb" in part for part in resolved.split("/"))
+    return is_device_removable_or_usb(resolved)
 
 
 def validate_usb_drive(drive):
@@ -158,30 +204,28 @@ def validate_usb_drive(drive):
     """
     block_name = get_block_name(drive)
     if block_name is None:
-        raise DriveError("{} is not a whole disk device path.".format(drive))
+        raise DriveError(f"{drive} is not a whole disk device path.")
 
     if block_name not in find_usb_block_names():
-        raise DriveError("{} is not a removable USB drive.".format(drive))
+        raise DriveError(f"{drive} is not a removable USB or SD drive.")
 
-    device_paths = set([drive] + get_partitions(block_name))
+    device_paths = {drive, *get_partitions(block_name)}
     for source, mount_point in get_mounts():
         if source in device_paths and mount_point in CRITICAL_MOUNT_POINTS:
-            raise DriveError(
-                "{} carries the system mount point {}.".format(source, mount_point)
-            )
+            raise DriveError(f"{source} carries the system mount point {mount_point}.")
 
     swap_devices = set(get_swap_devices())
     for device_path in sorted(device_paths & swap_devices):
-        raise DriveError("{} is in use as swap space.".format(device_path))
+        raise DriveError(f"{device_path} is in use as swap space.")
 
     # A holder means the disk or one of its partitions is a backing device of a
     # device mapper target, so writing it would destroy a live stacked volume.
-    holders = glob("/sys/block/{}/holders/*".format(block_name)) + glob(
-        "/sys/block/{}/{}*/holders/*".format(block_name, block_name)
+    holders = glob(f"/sys/block/{block_name}/holders/*") + glob(
+        f"/sys/block/{block_name}/{block_name}*/holders/*"
     )
     if holders:
         raise DriveError(
-            "{} is in use by a device mapper layer (LVM, LUKS or RAID).".format(drive)
+            f"{drive} is in use by a device mapper layer (LVM, LUKS or RAID)."
         )
 
     return block_name
@@ -193,7 +237,7 @@ def unmount_drive(drive, block_name):
     if umount is None:
         raise DriveError("umount command not found.")
 
-    device_paths = set([drive] + get_partitions(block_name))
+    device_paths = {drive, *get_partitions(block_name)}
     for source, mount_point in get_mounts():
         if source not in device_paths:
             continue
@@ -203,9 +247,7 @@ def unmount_drive(drive, block_name):
         )
         if result.returncode != 0:
             reason = result.stderr.decode("utf-8", "replace").strip()
-            raise DriveError(
-                "Could not unmount {} from {}: {}".format(source, mount_point, reason)
-            )
+            raise DriveError(f"Could not unmount {source} from {mount_point}: {reason}")
 
 
 def open_drive_exclusive(drive, block_name, sync_writes=False):
@@ -230,17 +272,17 @@ def open_drive_exclusive(drive, block_name, sync_writes=False):
     try:
         file_descriptor = os.open(drive, open_flags)
     except OSError as error:
-        raise DriveError("Could not open {} for writing: {}".format(drive, error))
+        raise DriveError(f"Could not open {drive} for writing: {error}")
 
     try:
         device_info = os.fstat(file_descriptor)
         if not stat.S_ISBLK(device_info.st_mode):
-            raise DriveError("{} is not a block device.".format(drive))
+            raise DriveError(f"{drive} is not a block device.")
 
         major = os.major(device_info.st_rdev)
         minor = os.minor(device_info.st_rdev)
         if not is_whole_usb_disk(major, minor, block_name):
-            raise DriveError("{} is not a whole USB disk.".format(drive))
+            raise DriveError(f"{drive} is not a whole USB disk.")
 
         drive_size = os.lseek(file_descriptor, 0, os.SEEK_END)
         os.lseek(file_descriptor, 0, os.SEEK_SET)
@@ -278,7 +320,7 @@ def reassert_usb_drive(drive, block_name):
     """
     current_block_name = validate_usb_drive(drive)
     if current_block_name != block_name:
-        raise DriveError("{} is no longer the disk that was validated.".format(drive))
+        raise DriveError(f"{drive} is no longer the disk that was validated.")
 
     unmount_drive(drive, block_name)
 
@@ -301,9 +343,9 @@ def format_size(size):
         (1000, "kB"),
     ):
         if size >= limit:
-            return "%.0f%s" % (round(size / limit), unit)
+            return f"{round(size / limit)}{unit}"
 
-    return "%.0fB" % round(size)
+    return f"{round(size)}B"
 
 
 # The udev context, monitor and observer are process wide singletons: one udev
@@ -318,6 +360,9 @@ _refresh_callbacks = []
 def get_context():
     """Return the shared udev context, creating it on first use."""
     global _context
+
+    if not HAS_PYUDEV:
+        return None
 
     if _context is None:
         _context = Context()
@@ -336,10 +381,16 @@ def connect_usb_refresh_signal(signalfunc):
     """Call signalfunc whenever a block device is plugged in or removed."""
     global _monitor, _observer
 
+    if not HAS_PYUDEV:
+        return
+
     _refresh_callbacks.append(signalfunc)
 
     if _observer is None:
-        _monitor = Monitor.from_netlink(get_context())
+        context = get_context()
+        if context is None:
+            return
+        _monitor = Monitor.from_netlink(context)
         _monitor.filter_by(subsystem="block", device_type="disk")
         _observer = MonitorObserver(_monitor, _on_udev_event)
         _observer.start()
@@ -352,14 +403,35 @@ def get_usb_devices():
 
     for blockName in find_usb_block_names():
         try:
-            device = Devices.from_path(context, "/sys/block/{}".format(blockName))
+            deviceLabel = ""
+            if HAS_PYUDEV and context is not None:
+                device = Devices.from_path(context, "/sys/block/{}".format(blockName))
+                # 'FEDAR32', or 'Kingston DataTraveler' when there is no label
+                deviceLabel = device.get("ID_FS_LABEL", "")
+                if deviceLabel == "":
+                    deviceLabel = "{} {}".format(
+                        device.get("ID_VENDOR", ""), device.get("ID_MODEL", "NO_MODEL")
+                    )
 
-            # 'FEDAR32', or 'Kingston DataTraveler' when there is no label
-            deviceLabel = device.get("ID_FS_LABEL", "")
-            if deviceLabel == "":
-                deviceLabel = "{} {}".format(
-                    device.get("ID_VENDOR", ""), device.get("ID_MODEL", "NO_MODEL")
-                )
+            if not deviceLabel.strip() or deviceLabel.strip() == "NO_MODEL":
+                vendor_path = "/sys/block/{}/device/vendor".format(blockName)
+                model_path = "/sys/block/{}/device/model".format(blockName)
+                vendor = ""
+                model = ""
+                if os.path.exists(vendor_path):
+                    with open(vendor_path, "r") as f:
+                        vendor = f.read().strip()
+                if os.path.exists(model_path):
+                    with open(model_path, "r") as f:
+                        model = f.read().strip()
+                combined = "{} {}".format(vendor, model).strip()
+                if not combined:
+                    name_path = "/sys/block/{}/device/name".format(blockName)
+                    if os.path.exists(name_path):
+                        with open(name_path, "r") as f:
+                            combined = f.read().strip()
+                fallback_type = "SD Card" if blockName.startswith("mmcblk") else "USB Drive"
+                deviceLabel = combined if combined else fallback_type
 
             blockCount = read_sysfs_int("/sys/block/{}/size".format(blockName))
             blockSize = read_sysfs_int(

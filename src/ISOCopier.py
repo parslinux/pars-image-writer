@@ -46,8 +46,14 @@ PARTITION_ALIGNMENT = 1024 * 1024
 FILESYSTEM_OVERHEAD = 1.02
 
 
+def get_partition_path(drive, part_num):
+    """Return universal partition device path (handles /dev/sdX1, /dev/mmcblk0p1, /dev/nvme0n1p1)."""
+    suffix = f"p{part_num}" if drive[-1].isdigit() else f"{part_num}"
+    return f"{drive}{suffix}"
+
+
 class IsoCopy:
-    def __init__(self, iso_path, drive, is_windows=False):
+    def __init__(self, iso_path, drive, is_windows=False, persistence=False):
         # Define file variables
         self.iso_mounted_path = os.path.join(RUNTIME_DIRECTORY, "iso")
         self.usb_mounted_path = os.path.join(RUNTIME_DIRECTORY, "usb")
@@ -59,6 +65,7 @@ class IsoCopy:
         self.exit_code = 0
         self.cancelled = False
         self.is_windows = is_windows
+        self.persistence = persistence
 
         # Kept open for the whole run so the inode that was accepted cannot be
         # replaced by another one afterwards.
@@ -73,7 +80,7 @@ class IsoCopy:
         self.check_iso_fits()
 
         self.sector_size = read_sysfs_int(
-            "/sys/block/{}/queue/logical_block_size".format(self.block_name)
+            f"/sys/block/{self.block_name}/queue/logical_block_size"
         )
 
         signal.signal(signal.SIGTERM, self.signal_handler)
@@ -96,17 +103,17 @@ class IsoCopy:
         try:
             file_descriptor = open_as_caller(iso_path, open_flags)
         except OSError as error:
-            fail("Could not read the ISO file: {}".format(error))
+            fail(f"Could not read the ISO file: {error}")
 
         file_info = os.fstat(file_descriptor)
 
         if not stat.S_ISREG(file_info.st_mode):
             os.close(file_descriptor)
-            fail("{} is not a regular file.".format(iso_path))
+            fail(f"{iso_path} is not a regular file.")
 
         if file_info.st_size == 0:
             os.close(file_descriptor)
-            fail("{} is empty.".format(iso_path))
+            fail(f"{iso_path} is empty.")
 
         return file_descriptor, file_info.st_size
 
@@ -123,9 +130,7 @@ class IsoCopy:
 
         if required_bytes > self.drive_size:
             fail(
-                "The ISO does not fit on the disk: {} bytes needed, {} available.".format(
-                    required_bytes, self.drive_size
-                )
+                f"The ISO does not fit on the disk: {required_bytes} bytes needed, {self.drive_size} available."
             )
 
     def stop_spawned_process(self):
@@ -136,11 +141,39 @@ class IsoCopy:
         request_stop(number)
         self.stop_spawned_process()
 
+    def check_grub_prerequisites(self):
+        """Ensure grub-install and target architecture modules exist before touching the drive."""
+        if not shutil.which("grub-install"):
+            raise DriveError("grub-install executable not found. Please install grub2-common.")
+
+        targets = ["i386-pc"]
+        if not self.is_windows:
+            targets.append("x86_64-efi")
+
+        missing_targets = []
+        for target in targets:
+            found = False
+            for base_dir in ("/usr/lib/grub", "/usr/share/grub", "/usr/lib/grub-legacy"):
+                if os.path.isdir(os.path.join(base_dir, target)):
+                    found = True
+                    break
+            if not found:
+                missing_targets.append(target)
+
+        if missing_targets:
+            raise DriveError(
+                "Required GRUB platform modules missing for: {}. Please install grub-pc-bin and grub-efi-amd64-bin.".format(
+                    ", ".join(missing_targets)
+                )
+            )
+
     def start_writing(self):
         try:
             # Last chance to notice that the disk was swapped, unplugged or
             # mounted between the checks in __init__ and the first write.
             reassert_usb_drive(self.drive, self.block_name)
+
+            self.check_grub_prerequisites()
 
             self.create_partition_table(self.drive)
 
@@ -177,38 +210,77 @@ class IsoCopy:
 
     def create_partition_table(self, drive):
         # Delete old partitions
-        run(["dd", "if=/dev/zero", "of={}".format(drive), "bs=1M", "count=1"])
+        run(["dd", "if=/dev/zero", f"of={drive}", "bs=1M", "count=1"])
         run(["parted", drive, "mktable", "msdos"])
 
     def wait_for_partition(self, partition):
         """parted returns before udev created the node mkfs is about to use."""
         settle()
         if not wait_for_block_device(partition):
-            raise DriveError("{} did not appear after partitioning.".format(partition))
+            raise DriveError(f"{partition} did not appear after partitioning.")
 
     def create_fat32_partition(self, drive):
-        partition1 = "{}1".format(drive)
+        partition1 = get_partition_path(drive, 1)
+        partition2 = get_partition_path(drive, 2)
 
-        # Create FAT32, bootable
-        run(["parted", drive, "mkpart", "primary", "fat32", "1", "100%"])
+        if not self.persistence:
+            # Standard single FAT32 partition
+            run(["parted", drive, "mkpart", "primary", "fat32", "1", "100%"])
+            self.wait_for_partition(partition1)
+            run(["wipefs", "-a", partition1, "--force"], False)
+            run(["mkfs.vfat", partition1])
+            run(["parted", drive, "set", "1", "boot", "on"])  # bios boot support
+            return
+
+        # Persistence mode: Partition 1 for ISO, Partition 2 (ext4) for live persistence
+        fat32_size_bytes = int(self.iso_size * 1.15) + (256 * 1024 * 1024)
+        fat32_sectors = math.ceil(fat32_size_bytes / self.sector_size)
+        total_sectors = int(self.drive_size / self.sector_size)
+
+        if total_sectors - fat32_sectors < int((100 * 1024 * 1024) / self.sector_size):
+            raise DriveError("Drive does not have enough free space for a persistence partition.")
+
+        run([
+            "parted", "-a", "optimal", drive,
+            "mkpart", "primary", "fat32", "1s", f"{fat32_sectors}s"
+        ])
+        run([
+            "parted", "-a", "optimal", drive,
+            "mkpart", "primary", "ext4", f"{fat32_sectors + 1}s", "100%"
+        ])
+
         self.wait_for_partition(partition1)
+        self.wait_for_partition(partition2)
 
-        # Wipe the old one
         run(["wipefs", "-a", partition1, "--force"], False)
+        run(["wipefs", "-a", partition2, "--force"], False)
 
         run(["mkfs.vfat", partition1])
-        run(["parted", drive, "set", "1", "boot", "on"])  # bios boot support
+        run(["mkfs.ext4", "-F", "-L", "persistence", partition2])
+
+        run(["parted", drive, "set", "1", "boot", "on"])
+
+        # Create persistence.conf on partition 2
+        persistence_mount = os.path.join(RUNTIME_DIRECTORY, "persistence")
+        os.makedirs(persistence_mount, mode=0o700, exist_ok=True)
+        run(["mount", partition2, persistence_mount])
+        try:
+            with open(os.path.join(persistence_mount, "persistence.conf"), "w") as f:
+                f.write("/ union\n")
+            sync()
+        finally:
+            run(["umount", persistence_mount], False)
 
     def create_windows_partitions(self, drive):
-        partition1 = "{}1".format(drive)
-        partition2 = "{}2".format(drive)
+        partition1 = get_partition_path(drive, 1)
+        partition2 = get_partition_path(drive, 2)
 
         total_sectors = int(self.drive_size / self.sector_size)
         uefi_sectors = math.ceil(UEFI_PARTITION_SIZE / self.sector_size)
         ntfs_sector_end = total_sectors - uefi_sectors - 1
 
         if ntfs_sector_end < 1:
-            raise DriveError("{} is too small for Windows mode.".format(drive))
+            raise DriveError(f"{drive} is too small for Windows mode.")
 
         # Create NTFS partition1 (windows iso files here)
         run(
@@ -221,7 +293,7 @@ class IsoCopy:
                 "primary",
                 "ntfs",
                 "1s",  # bootable needs to start from sector 1
-                "{}s".format(ntfs_sector_end),
+                f"{ntfs_sector_end}s",
             ]
         )
 
@@ -235,7 +307,7 @@ class IsoCopy:
                 "mkpart",
                 "primary",
                 "fat32",
-                "{}s".format(ntfs_sector_end + 1),
+                f"{ntfs_sector_end + 1}s",
                 "100%",
             ]
         )
@@ -279,8 +351,78 @@ class IsoCopy:
         os.makedirs(self.iso_mounted_path, mode=0o700, exist_ok=True)
         os.makedirs(self.usb_mounted_path, mode=0o700, exist_ok=True)
 
+    def mount_iso(self):
+        """Mount source ISO image with fallback cascade across filesystem types."""
+        types_to_try = ["udf", "iso9660"] if self.is_windows else ["iso9660", "udf"]
+        mounted = False
+        last_error = None
+        for fs_type in types_to_try:
+            try:
+                run([
+                    "mount",
+                    "-o",
+                    "ro," + MOUNT_OPTIONS,
+                    "-t",
+                    fs_type,
+                    self.iso_file_path,
+                    self.iso_mounted_path,
+                ])
+                mounted = True
+                break
+            except Exception as e:
+                last_error = e
+
+        if not mounted:
+            # Fallback to auto-detection without explicit -t
+            try:
+                run([
+                    "mount",
+                    "-o",
+                    "ro," + MOUNT_OPTIONS,
+                    self.iso_file_path,
+                    self.iso_mounted_path,
+                ])
+                mounted = True
+            except Exception as e:
+                raise DriveError("Failed to mount ISO image ({}): {}".format(self.iso_file_path, last_error or e))
+
+    def mount_usb(self, partition):
+        """Mount target USB partition with fallback cascade (ntfs3 -> ntfs-3g -> ntfs or vfat)."""
+        types_to_try = ["ntfs3", "ntfs-3g", "ntfs"] if self.is_windows else ["vfat"]
+        mounted = False
+        last_error = None
+        for fs_type in types_to_try:
+            try:
+                run([
+                    "mount",
+                    "-o",
+                    "rw," + MOUNT_OPTIONS,
+                    "-t",
+                    fs_type,
+                    partition,
+                    self.usb_mounted_path,
+                ])
+                mounted = True
+                break
+            except Exception as e:
+                last_error = e
+
+        if not mounted:
+            # Fallback without explicit -t
+            try:
+                run([
+                    "mount",
+                    "-o",
+                    "rw," + MOUNT_OPTIONS,
+                    partition,
+                    self.usb_mounted_path,
+                ])
+                mounted = True
+            except Exception as e:
+                raise DriveError("Failed to mount USB partition ({}): {}".format(partition, last_error or e))
+
     def mount_folders(self, drive):
-        partition1 = "{}1".format(drive)
+        partition1 = get_partition_path(drive, 1)
 
         # Unmount first if already mounted
         self.unmount_tmp_folders()
@@ -291,31 +433,8 @@ class IsoCopy:
 
         self.create_runtime_directory()
 
-        # Mount ISO Image
-        run(
-            [
-                "mount",
-                "-o",
-                "ro," + MOUNT_OPTIONS,
-                "-t",
-                "udf" if self.is_windows else "iso9660",
-                self.iso_file_path,
-                self.iso_mounted_path,
-            ]
-        )
-
-        # Mount USB
-        run(
-            [
-                "mount",
-                "-o",
-                "rw," + MOUNT_OPTIONS,
-                "-t",
-                "ntfs3" if self.is_windows else "vfat",
-                partition1,
-                self.usb_mounted_path,
-            ]
-        )
+        self.mount_iso()
+        self.mount_usb(partition1)
 
     def copy_dir_with_dd(self, src, dest):
         sync()
@@ -342,7 +461,7 @@ class IsoCopy:
                 # The script reports plain byte counts, everything else is a
                 # protocol line of its own (TOTAL_BYTES:, COPIED:).
                 if line.strip().isdigit():
-                    sys.stdout.write("BYTES:{}".format(line))
+                    sys.stdout.write(f"BYTES:{line}")
                 else:
                     sys.stdout.write(line)
                 sys.stdout.flush()
@@ -356,9 +475,7 @@ class IsoCopy:
         # be reported as finished.
         if process.returncode != 0:
             raise DriveError(
-                "Copying the ISO contents failed with exit code {}.".format(
-                    process.returncode
-                )
+                f"Copying the ISO contents failed with exit code {process.returncode}."
             )
 
         sync()
@@ -375,7 +492,7 @@ class IsoCopy:
                     drive,
                     "--target=i386-pc",
                     "--force",
-                    "--boot-directory={}".format(boot_directory),
+                    f"--boot-directory={boot_directory}",
                 ]
             )
             return
@@ -389,8 +506,8 @@ class IsoCopy:
             [
                 "grub-install",
                 "--target=i386-pc",
-                "--efi-directory={}".format(usb_mounted_path),
-                "--boot-directory={}".format(boot_directory),
+                f"--efi-directory={usb_mounted_path}",
+                f"--boot-directory={boot_directory}",
                 drive,
             ]
         )
@@ -417,21 +534,26 @@ class IsoCopy:
 
     def finish_writing(self):
         # Runs while unwinding an error or a cancel too, so it must not raise.
-        for command in (
-            ["sync"],
-            ["umount", self.iso_mounted_path],
-            ["umount", self.usb_mounted_path],
-            ["umount", "{}1".format(self.drive)],
+        subprocess.run(["sync"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for target in (
+            self.iso_mounted_path,
+            self.usb_mounted_path,
+            get_partition_path(self.drive, 1),
+            get_partition_path(self.drive, 2),
+            os.path.join(RUNTIME_DIRECTORY, "persistence"),
         ):
-            subprocess.run(
-                command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            res = subprocess.run(["umount", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode != 0:
+                # Lazy unmount fallback to prevent EBUSY locks from desktop indexers
+                subprocess.run(["umount", "-l", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         shutil.rmtree(RUNTIME_DIRECTORY, ignore_errors=True)
 
     def unmount_tmp_folders(self):
-        run(["umount", self.iso_mounted_path], False)
-        run(["umount", self.usb_mounted_path], False)
+        for path in (self.iso_mounted_path, self.usb_mounted_path):
+            res = subprocess.run(["umount", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if res.returncode != 0:
+                subprocess.run(["umount", "-l", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def remove_tmp_folders(self):
         shutil.rmtree(self.iso_mounted_path, ignore_errors=True)
@@ -439,12 +561,13 @@ class IsoCopy:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) not in (3, 4):
+    if len(sys.argv) not in (3, 4, 5):
         sys.stderr.write(
-            "Usage: {} [iso path] [drive] [is_windows=false]\n".format(sys.argv[0])
+            "Usage: {} [iso path] [drive] [is_windows=false] [persistence=false]\n".format(sys.argv[0])
         )
         sys.exit(1)
 
-    is_windows = len(sys.argv) == 4 and sys.argv[3] == "true"
+    is_windows = len(sys.argv) >= 4 and sys.argv[3] == "true"
+    persistence = len(sys.argv) >= 5 and sys.argv[4] == "true"
 
-    IsoCopy(sys.argv[1], sys.argv[2], is_windows=is_windows).start_writing()
+    IsoCopy(sys.argv[1], sys.argv[2], is_windows=is_windows, persistence=persistence).start_writing()

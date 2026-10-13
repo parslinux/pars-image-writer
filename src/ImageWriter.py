@@ -24,8 +24,18 @@ import sys
 
 from USBDeviceManager import DriveError, open_drive_exclusive, validate_usb_drive
 from USBDeviceManager import unmount_drive
-from Utils import exit_as_cancelled, fail, log, open_as_caller, request_stop
-from Utils import stop_requested, watch_stdin_for_cancel
+from Utils import (
+    detect_compression,
+    exit_as_cancelled,
+    fail,
+    get_uncompressed_size,
+    log,
+    open_as_caller,
+    open_decompressed_stream,
+    request_stop,
+    stop_requested,
+    watch_stdin_for_cancel,
+)
 
 BUFFER_SIZE = 4 * 1024 * 1024  # 4 MiB read/write chunk
 
@@ -45,6 +55,8 @@ def open_image_file(filepath):
     O_NONBLOCK keeps the open from hanging forever on a FIFO or on a device
     node, and the type is checked on the descriptor itself, so the file cannot
     be swapped between the check and the read.
+
+    Supports automatic streaming decompression for .xz, .gz, .zst, and .bz2 files.
     """
     open_flags = os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC
     try:
@@ -65,19 +77,35 @@ def open_image_file(filepath):
         image_file.close()
         fail("{} is empty.".format(filepath))
 
-    return image_file, file_info.st_size
+    # Check for compressed formats (.xz, .gz, .zst, .bz2)
+    comp_type = detect_compression(filepath)
+    if comp_type:
+        log(f"Compressed image detected ({comp_type.upper()}). Streaming decompress active.")
+        uncompressed_size = get_uncompressed_size(filepath, comp_type)
+        try:
+            stream = open_decompressed_stream(image_file, comp_type)
+        except Exception as err:
+            image_file.close()
+            fail(f"Akış açma motoru başlatılamadı: {err}")
+
+        total_bytes = uncompressed_size if (uncompressed_size and uncompressed_size > 0) else file_info.st_size
+        return stream, total_bytes, comp_type
+
+    return image_file, file_info.st_size, None
 
 
-def write_image(image_file, drive_file, total_bytes):
-    """Copy the image onto the drive, reporting progress on stdout.
+def write_image(image_file, drive_files, total_bytes):
+    """Copy the image onto the drive(s), reporting progress on stdout.
 
-    The drive is opened with O_DSYNC, so every write only returns once the data
-    is on the stick. That makes each reported number the real progress of the
-    disk, and there is no periodic flush that would stall the report.
+    The drives are opened with O_DSYNC, so every write only returns once the data
+    is on the stick. When multiple target drives are provided, chunks are written
+    in broadcast mode to all drives simultaneously with per-device fault isolation.
     """
     written_bytes = 0
+    active_drives = list(drive_files)
+    failed_drives = []
 
-    print("0 {}".format(total_bytes))
+    print(f"0 {total_bytes}")
     sys.stdout.flush()
 
     while not stop_requested():
@@ -85,20 +113,52 @@ def write_image(image_file, drive_file, total_bytes):
         if not chunk:
             break
 
-        drive_file.write(chunk)
-        drive_file.flush()
+        # Broadcast write chunk with per-drive fault isolation
+        for drive_file in list(active_drives):
+            try:
+                drive_file.write(chunk)
+                drive_file.flush()
+            except OSError as err:
+                d_name = getattr(drive_file, "_target_drive", "drive")
+                log(f"Write error on {d_name}: {err}. Removing from active broadcast.")
+                try:
+                    drive_file.close()
+                except Exception:
+                    pass
+                active_drives.remove(drive_file)
+                failed_drives.append(drive_file)
+
+        if not active_drives:
+            raise OSError("All target drives encountered I/O write failures.")
+
         written_bytes += len(chunk)
 
-        print("{} {}".format(written_bytes, total_bytes))
+        if total_bytes > 0 and written_bytes > total_bytes:
+            total_bytes = written_bytes
+
+        print(f"{written_bytes} {total_bytes}")
         sys.stdout.flush()
 
     if stop_requested():
         return False
 
-    drive_file.flush()
-    os.fsync(drive_file.fileno())
+    for drive_file in list(active_drives):
+        try:
+            drive_file.flush()
+            os.fsync(drive_file.fileno())
+        except OSError as err:
+            d_name = getattr(drive_file, "_target_drive", "drive")
+            log(f"Error during final sync of {d_name}: {err}")
+            failed_drives.append(drive_file)
+            active_drives.remove(drive_file)
 
-    print("{} {}".format(total_bytes, total_bytes))
+    if not active_drives:
+        raise OSError("All target drives encountered I/O write failures during final sync.")
+
+    if total_bytes <= 0:
+        total_bytes = written_bytes
+
+    print(f"{total_bytes} {total_bytes}")
     sys.stdout.flush()
 
     return True
@@ -115,44 +175,79 @@ def eject_drive(drive):
         [eject, drive], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
     )
     if result.returncode != 0:
-        log("Warning: could not eject {}.".format(drive))
+        log(f"Warning: could not eject {drive}.")
 
 
 def main():
-    # The third argument (is_windows) only applies to ISOCopier.py; accept and
-    # ignore it so both scripts can be called with the same argument list.
-    if len(sys.argv) not in (3, 4):
-        sys.stderr.write("Usage: ./ImageWriter.py /file/path/iso.iso /dev/sdX\n")
+    if len(sys.argv) < 3:
+        sys.stderr.write("Usage: ./ImageWriter.py /file/path/iso.iso /dev/sdX [/dev/sdY ...]\n")
         sys.exit(1)
 
     filepath = sys.argv[1]
-    drive = sys.argv[2]
+
+    # Parse and normalize target drives (supports single, multiple, or comma-separated drives)
+    raw_targets = []
+    for arg in sys.argv[2:]:
+        # Ignore legacy boolean flags (e.g. is_windows)
+        if arg.lower() in ("true", "false"):
+            continue
+        for part in arg.split(","):
+            part = part.strip()
+            if part:
+                if not part.startswith("/dev/"):
+                    part = "/dev/" + part
+                raw_targets.append(part)
+
+    # Deduplicate while preserving order
+    target_drives = []
+    seen = set()
+    for d in raw_targets:
+        if d not in seen:
+            seen.add(d)
+            target_drives.append(d)
+
+    if not target_drives:
+        fail("No valid target drive specified.")
 
     # The image is validated first so a bad file never costs the user the
     # mounted filesystems of the drive.
-    image_file, total_bytes = open_image_file(filepath)
+    image_file, total_bytes, comp_type = open_image_file(filepath)
+
+    drive_handles = []
+    opened_descriptors = []
 
     try:
-        block_name = validate_usb_drive(drive)
-        unmount_drive(drive, block_name)
-        # O_DSYNC: without it the writes only reach the page cache, the
-        # progress races ahead of the stick at RAM speed and then freezes on
-        # every flush, and the reported speed is the speed of the memory.
-        file_descriptor, drive_size = open_drive_exclusive(
-            drive, block_name, sync_writes=True
-        )
+        for drive in target_drives:
+            block_name = validate_usb_drive(drive)
+            unmount_drive(drive, block_name)
+            # O_DSYNC: without it the writes only reach the page cache
+            file_descriptor, drive_size = open_drive_exclusive(
+                drive, block_name, sync_writes=True
+            )
+            opened_descriptors.append(file_descriptor)
+
+            if total_bytes > drive_size and comp_type is None:
+                fail(
+                    f"The image is larger than the disk {drive}: {total_bytes} bytes > {drive_size} bytes."
+                )
+
+            handle = os.fdopen(file_descriptor, "wb", buffering=BUFFER_SIZE)
+            handle._target_drive = drive
+            drive_handles.append(handle)
     except DriveError as error:
-        image_file.close()
+        for fd in opened_descriptors:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            image_file.close()
+        except Exception:
+            pass
         fail(error)
 
-    if total_bytes > drive_size:
-        os.close(file_descriptor)
-        image_file.close()
-        fail(
-            "The image is larger than the disk: {} bytes > {} bytes.".format(
-                total_bytes, drive_size
-            )
-        )
+    if len(target_drives) > 1:
+        log(f"Broadcast multi-write active: {len(target_drives)} target devices ({', '.join(target_drives)})")
 
     # From here on a cancel request must not kill the process mid write: the
     # handler only raises a flag and the write loop leaves the drive in a
@@ -164,22 +259,29 @@ def main():
 
     completed = False
     try:
-        # Buffered on purpose: a BufferedWriter retries short writes, a raw
-        # descriptor would silently drop the tail of a partially written chunk.
-        with (
-            image_file,
-            os.fdopen(file_descriptor, "wb", buffering=BUFFER_SIZE) as drive_file,
-        ):
-            completed = write_image(image_file, drive_file, total_bytes)
+        completed = write_image(image_file, drive_handles, total_bytes)
     except OSError as error:
-        fail("Writing failed: {}".format(error))
+        fail(f"Writing failed: {error}")
+    finally:
+        for handle in drive_handles:
+            try:
+                handle.close()
+            except OSError:
+                pass
+        try:
+            image_file.close()
+        except Exception:
+            pass
 
     if not completed:
         exit_as_cancelled()
 
-    eject_drive(drive)
+    for drive in target_drives:
+        eject_drive(drive)
+
     sys.exit(0)
 
 
 if __name__ == "__main__":
     main()
+
