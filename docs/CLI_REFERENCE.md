@@ -51,10 +51,10 @@ pars-image-writer-cli --file <yol> --device <aygıtlar...> [seçenekler]
 ### Örnek Kullanımlar:
 ```bash
 # 1. Standart tek diske yazdırma
-pars-image-writer-cli -f pardus.iso -d /dev/sdb
+pars-image-writer-cli -f pars-linux.iso -d /dev/sdb
 
 # 2. Çoklu eşzamanlı USB yazma istasyonu modu (Broadcast multi-write)
-pars-image-writer-cli -f pardus.iso -d /dev/sdb /dev/sdc /dev/sdd -y
+pars-image-writer-cli -f pars-linux.iso -d /dev/sdb /dev/sdc /dev/sdd -y
 
 # 3. Zstandard veya XZ sıkıştırılmış kalıbı doğrudan açarak diske yazma (Streaming decompress)
 pars-image-writer-cli -f fedora-silverblue.raw.xz -d /dev/sdb

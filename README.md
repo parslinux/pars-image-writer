@@ -112,6 +112,7 @@ Projenin kapsamlı teknik ve operasyonel dokümantasyonu `docs/` dizininde yer a
 - 🤝 [Katkıda Bulunma Rehberi (CONTRIBUTING.md)](docs/CONTRIBUTING.md)
 - 🤖 [Claude & Yapay Zeka Ajan Kılavuzu (CLAUDE.md)](docs/CLAUDE.md)
 - 📈 [Geliştirme İlerleme Raporu (progress.md)](docs/progress.md)
+- 🔱 [Çatallama Beyannamesi & Köken (FORK.md)](docs/FORK.md)
 - 📋 [Sürüm Politikası (VERSION.md)](docs/VERSION.md) & [Değişiklik Günlüğü (CHANGELOG.md)](docs/CHANGELOG.md)
 
 ---

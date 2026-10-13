@@ -102,6 +102,10 @@ Bu belge, **Pars Image Writer** projesinin geliştirme aşamalarını, tamamlana
   - Tip güvenliği (typing), `pathlib.Path` ve `os.path.join` dosya yolu güvenliği uygulandı.
   - `MainWindow.py` içerisindeki kullanım dışı `Gtk.STOCK_*` butonları modern standart gettext butonlarıyla değiştirildi.
   - `Main.py` masaüstü dosya yöneticisi "Birlikte Aç" kuralı tüm sıkıştırılmış formatları tanıyacak şekilde güncellendi.
+- [x] **Tam Dağıtım Bağımsızlığı & Çatallama Beyannamesi (`FORK.md`)**:
+  - Kod tabanı, dokümantasyon ve örnek komutlardaki tüm miras dağıtım kalıntıları ve atıfları temizlendi (kod genelinde 0 referans).
+  - Projenin kökenini, GPL-3.0 lisans uyumunu, mimari ayrışma ve gelişim tablosunu belgeleyen `docs/FORK.md` ve kök dizin `FORK.md` oluşturuldu.
+  - `README.md` dokümantasyon haritasına bağlandı.
 
 ---
 
